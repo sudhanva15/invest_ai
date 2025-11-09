@@ -1,4 +1,12 @@
 #!/usr/bin/env python
+import sys
+from pathlib import Path
+
+# Add repo root to path
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from core.data_ingestion import get_prices_with_provenance
 from core.data_sources.fred import load_series
 

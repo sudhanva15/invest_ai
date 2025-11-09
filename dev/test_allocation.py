@@ -1,6 +1,14 @@
 """Test suite for portfolio weight constraints."""
 
+import sys
+from pathlib import Path
 import unittest
+
+# Add repo root to path
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from core.portfolio.constraints import apply_weight_constraints, validate_weights
 
 

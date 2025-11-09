@@ -1,4 +1,11 @@
+import sys
+from pathlib import Path
 import unittest
+
+# Add repo root to path
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 class TestReceipts(unittest.TestCase):
     def test_receipts_present(self):
@@ -8,7 +15,7 @@ class TestReceipts(unittest.TestCase):
         except Exception:
             util_available = False
 
-        from core.data_sources.router_smart import get_prices_with_provenance
+        from core.data_ingestion import get_prices_with_provenance
         tickers = ["SPY","QQQ","TLT"]
         df, _ = get_prices_with_provenance(tickers, start="2010-01-01")
 
