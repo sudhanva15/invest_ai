@@ -258,16 +258,22 @@ def recommend(returns, profile, objective="grow", risk_pct=50, catalog=None, met
     # This prevents optimizer instability from column reordering
     rets = rets.reindex(sorted(rets.columns), axis=1)
     
-    symbols = list(rets.columns)
-    if not symbols:
-        return {"weights": {}, "metrics": {}, "curve": pd.Series(dtype=float)}
-    
     # STABILITY: Light winsorization to reduce outlier impact on optimizer
     # Clips extreme returns (0.5% tails) to improve numerical stability
     # TODO: Adjust limits if you want tighter/looser clipping
     from scipy.stats.mstats import winsorize
+    import numpy as np
     for col in rets.columns:
         rets[col] = winsorize(rets[col].values, limits=[0.005, 0.005])
+    
+    # Clean any remaining NaN/inf after winsorization
+    rets = rets.replace([np.inf, -np.inf], np.nan)
+    rets = rets.dropna(how="all")
+    rets = rets.loc[:, rets.std() > 0]  # Re-check after cleaning
+    
+    symbols = list(rets.columns)
+    if not symbols:
+        return {"weights": {}, "metrics": {}, "curve": pd.Series(dtype=float)}
 
     # Bounds derived from objective and catalog classes
     cat = catalog if catalog is not None else {"assets": []}
