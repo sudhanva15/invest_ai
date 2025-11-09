@@ -1,0 +1,214 @@
+{
+  "assets": [
+    {
+      "name": "US Total Market ETF (VTI)",
+      "symbol": "VTI",
+      "class": "public_equity",
+      "min_tier": "retail",
+      "min_risk_pct": 20
+    },
+    {
+      "name": "US Aggregate Bond ETF (BND)",
+      "symbol": "BND",
+      "class": "bond",
+      "min_tier": "retail",
+      "min_risk_pct": 5
+    },
+    {
+      "name": "TIPS ETF (TIP)",
+      "symbol": "TIP",
+      "class": "bond_inflation",
+      "min_tier": "retail",
+      "min_risk_pct": 5
+    },
+    {
+      "name": "Gold ETF (GLD)",
+      "symbol": "GLD",
+      "class": "commodity",
+      "min_tier": "retail",
+      "min_risk_pct": 15
+    },
+    {
+      "name": "US REIT ETF (VNQ)",
+      "symbol": "VNQ",
+      "class": "reit",
+      "min_tier": "retail",
+      "min_risk_pct": 15
+    },
+    {
+      "name": "Nasdaq 100 ETF (QQQ)",
+      "symbol": "QQQ",
+      "class": "public_equity_growth",
+      "min_tier": "retail",
+      "min_risk_pct": 35
+    },
+    {
+      "name": "Private Credit Fund (example)",
+      "symbol": "",
+      "class": "private_credit",
+      "min_tier": "accredited",
+      "min_risk_pct": 25
+    },
+    {
+      "name": "Venture Capital Fund (example)",
+      "symbol": "",
+      "class": "private_equity",
+      "min_tier": "accredited",
+      "min_risk_pct": 50
+    },
+    {
+      "name": "Hedge Fund (example)",
+      "symbol": "",
+      "class": "hedge_fund",
+      "min_tier": "qualified_client",
+      "min_risk_pct": 40
+    },
+    {
+      "name": "Direct PE Co-Invest (example)",
+      "symbol": "",
+      "class": "private_equity_direct",
+      "min_tier": "qualified_purchaser",
+      "min_risk_pct": 55
+    },
+    {
+      "name": "Muni Bonds ETF (MUB)",
+      "symbol": "MUB",
+      "class": "tax_eff_muni",
+      "min_tier": "retail",
+      "min_risk_pct": 8
+    },
+    {
+      "name": "Short-Term T-Bills ETF (BIL)",
+      "symbol": "BIL",
+      "class": "tbills",
+      "min_tier": "retail",
+      "min_risk_pct": 1
+    },
+    {
+      "name": "S&P 500 ETF (SPY)",
+      "symbol": "SPY",
+      "class": "public_equity",
+      "min_tier": "retail",
+      "min_risk_pct": 25
+    },
+    {
+      "name": "Dow Jones ETF (DIA)",
+      "symbol": "DIA",
+      "class": "public_equity",
+      "min_tier": "retail",
+      "min_risk_pct": 20
+    },
+    {
+      "name": "Russell 2000 ETF (IWM)",
+      "symbol": "IWM",
+      "class": "public_equity",
+      "min_tier": "retail",
+      "min_risk_pct": 30
+    },
+    {
+      "name": "Developed Mkts ex-US ETF (EFA)",
+      "symbol": "EFA",
+      "class": "public_equity_intl",
+      "min_tier": "retail",
+      "min_risk_pct": 25
+    },
+    {
+      "name": "Emerging Mkts ETF (EEM)",
+      "symbol": "EEM",
+      "class": "public_equity_em",
+      "min_tier": "retail",
+      "min_risk_pct": 30
+    },
+    {
+      "name": "Long Treasuries ETF (TLT)",
+      "symbol": "TLT",
+      "class": "treasury_long",
+      "min_tier": "retail",
+      "min_risk_pct": 10
+    },
+    {
+      "name": "Short Treasuries ETF (SHY)",
+      "symbol": "SHY",
+      "class": "treasury_short",
+      "min_tier": "retail",
+      "min_risk_pct": 1
+    },
+    {
+      "name": "IG Corporate Bonds ETF (LQD)",
+      "symbol": "LQD",
+      "class": "corp_ig",
+      "min_tier": "retail",
+      "min_risk_pct": 8
+    },
+    {
+      "name": "High-Yield Bonds ETF (HYG)",
+      "symbol": "HYG",
+      "class": "corp_hy",
+      "min_tier": "retail",
+      "min_risk_pct": 15
+    },
+    {
+      "name": "Broad Commodities ETF (DBC)",
+      "symbol": "DBC",
+      "class": "commodity",
+      "min_tier": "retail",
+      "min_risk_pct": 20
+    },
+    {
+      "name": "Broad Commodities ETF (GSG)",
+      "symbol": "GSG",
+      "class": "commodity",
+      "min_tier": "retail",
+      "min_risk_pct": 20
+    },
+    {
+      "name": "Apple Inc.",
+      "symbol": "AAPL",
+      "class": "single_stock",
+      "min_tier": "retail",
+      "min_risk_pct": 35
+    },
+    {
+      "name": "Microsoft Corp.",
+      "symbol": "MSFT",
+      "class": "single_stock",
+      "min_tier": "retail",
+      "min_risk_pct": 35
+    },
+    {
+      "name": "Amazon.com Inc.",
+      "symbol": "AMZN",
+      "class": "single_stock",
+      "min_tier": "retail",
+      "min_risk_pct": 35
+    },
+    {
+      "name": "Alphabet (GOOGL)",
+      "symbol": "GOOGL",
+      "class": "single_stock",
+      "min_tier": "retail",
+      "min_risk_pct": 35
+    },
+    {
+      "name": "Meta Platforms",
+      "symbol": "META",
+      "class": "single_stock",
+      "min_tier": "retail",
+      "min_risk_pct": 35
+    },
+    {
+      "name": "Tesla, Inc.",
+      "symbol": "TSLA",
+      "class": "single_stock",
+      "min_tier": "retail",
+      "min_risk_pct": 40
+    }
+  ],
+  "tier_order": [
+    "retail",
+    "accredited",
+    "qualified_client",
+    "qualified_purchaser",
+    "institutional"
+  ]
+}

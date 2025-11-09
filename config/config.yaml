@@ -1,0 +1,23 @@
+app:
+  name: invest_ai
+  mode: dev
+data:
+  cache_dir: data/raw
+  processed_dir: data/processed
+  outputs_dir: data/outputs
+  default_universe: ["SPY","QQQ","DIA","IWM","VTI","EFA","EEM","TLT","SHY","LQD","HYG","MUB","BIL","GLD","DBC","GSG","VNQ","AAPL","MSFT","AMZN","GOOGL","META","TSLA"]
+apis:
+  fred_base: "https://api.stlouisfed.org/fred"
+  polygon_base: "https://api.polygon.io"
+  use_yfinance_fallback: true
+risk:
+  rebalance_freq: "monthly"
+  target_vol_buckets:
+    low: 0.08
+    moderate: 0.12
+    high: 0.18
+optimization:
+  method: "HRP"
+  min_weight: 0.00
+  max_weight: 0.30
+  risk_free_rate: 0.015
