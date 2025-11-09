@@ -1,8 +1,17 @@
-.venv/
+# Python
 __pycache__/
 *.pyc
+
+# Environments
+.venv/
 .env
 config/credentials.env
-data/raw/
-models/trained/
-.streamlit/
+
+# Data/cache/logs/artifacts (keep local)
+data/
+**/cache/
+*.sqlite
+*.csv
+*.log
+.ipynb_checkpoints/
+.DS_Store
