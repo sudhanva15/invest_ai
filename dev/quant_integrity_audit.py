@@ -33,7 +33,7 @@ try:
     from core.data_ingestion import get_prices_with_provenance
     from core.preprocessing import compute_returns
     
-    symbols = ["SPY", "QQQ", "TLT", "IEF", "GLD"]
+    symbols = ["SPY", "QQQ", "TLT", "VTI", "GLD"]  # Use VTI instead of IEF (data availability)
     print(f"Loading prices for {symbols}...")
     
     wide, prov = get_prices_with_provenance(symbols, start="2010-01-01")
