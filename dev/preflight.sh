@@ -4,6 +4,9 @@
 
 set -e  # Exit on any error
 
+# Use venv Python
+PYTHON=".venv/bin/python"
+
 echo "========================================"
 echo "Invest_AI V3 Preflight Checks"
 echo "========================================"
@@ -11,20 +14,20 @@ echo "========================================"
 # 1) Run unit tests
 echo ""
 echo "[1/4] Running unit tests..."
-python3 dev/test_allocation.py
-python3 dev/test_receipts.py
+$PYTHON dev/test_allocation.py
+$PYTHON dev/test_receipts.py
 echo "✓ Unit tests PASS"
 
 # 2) Run smoke check
 echo ""
 echo "[2/4] Running smoke check..."
-python3 dev/smoke_check.py
+$PYTHON dev/smoke_check.py
 echo "✓ Smoke check PASS"
 
 # 3) Generate snapshot
 echo ""
 echo "[3/4] Generating weight snapshot..."
-python3 dev/snapshot_weights.py 2>/dev/null | python3 -m json.tool --compact
+$PYTHON dev/snapshot_weights.py 2>/dev/null | $PYTHON -m json.tool --compact
 echo "✓ Snapshot generated"
 
 # 4) Run diff against baseline
