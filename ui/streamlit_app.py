@@ -59,9 +59,8 @@ def _ui_source_badge(sources: dict, chosen_col: str = "adj_close"):
         )
 # ------------------------------------------------------------------------------
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+# ROOT already defined at top of file with proper Path import
+# Removed duplicate: ROOT = pathlib.Path(...) 
 
 import pandas as pd
 import streamlit as st
@@ -129,14 +128,35 @@ if _prov_names or _env_flags:
 # ----------------------------------------------------------------------------
 
 
+# Cached data loader to prevent refetching on every Streamlit rerun
+@st.cache_data(ttl=24*3600, show_spinner=False)
+def load_prices_cached(tickers, start=None):
+    """Load prices with provenance, cached for 24h to avoid refetching."""
+    df, prov = get_prices_with_provenance(tickers, start=start)
+    return df, prov
+
+# Load config at module level (needed by various functions)
 CFG = load_config()
 CAT = load_json("config/assets_catalog.json")
 TIER_ORDER = CAT["tier_order"]
 MIN_RISK_OBJ = min_risk_by_objective()
 
-# Initialize default symbols and fetch prices
-symbols = CFG.get("data", {}).get("default_universe", ["SPY"])
-prices, prov = get_prices_with_provenance(symbols)
+# Initialize session state to prevent losing data on rerun
+if "prices_loaded" not in st.session_state:
+    st.session_state.prices_loaded = False
+    st.session_state.prices_df = None
+    st.session_state.prov = None
+
+# Initialize default symbols and fetch prices (cached) - only once per session
+if not st.session_state.prices_loaded:
+    symbols = CFG.get("data", {}).get("default_universe", ["SPY"])
+    prices, prov = load_prices_cached(symbols)
+    st.session_state.prices_df = prices
+    st.session_state.prov = prov
+    st.session_state.prices_loaded = True
+else:
+    prices = st.session_state.prices_df
+    prov = st.session_state.prov
 
 # --- Wiring check (providers → fetch → returns → optimizer) ------------------
 with st.expander("🧪 System wiring check (providers → fetch → returns → optimizer)", expanded=False):

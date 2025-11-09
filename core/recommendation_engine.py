@@ -253,9 +253,21 @@ def recommend(returns, profile, objective="grow", risk_pct=50, catalog=None, met
     # Clean and keep only live series
     rets = returns.dropna(how="all").copy()
     rets = rets.loc[:, rets.std() > 0]
+    
+    # STABILITY: Lock universe order for consistent column alignment across runs
+    # This prevents optimizer instability from column reordering
+    rets = rets.reindex(sorted(rets.columns), axis=1)
+    
     symbols = list(rets.columns)
     if not symbols:
         return {"weights": {}, "metrics": {}, "curve": pd.Series(dtype=float)}
+    
+    # STABILITY: Light winsorization to reduce outlier impact on optimizer
+    # Clips extreme returns (0.5% tails) to improve numerical stability
+    # TODO: Adjust limits if you want tighter/looser clipping
+    from scipy.stats.mstats import winsorize
+    for col in rets.columns:
+        rets[col] = winsorize(rets[col].values, limits=[0.005, 0.005])
 
     # Bounds derived from objective and catalog classes
     cat = catalog if catalog is not None else {"assets": []}
