@@ -106,3 +106,21 @@ Equal-weight fallbacks ensure weights are non-empty and sum to 1.0.
 - If a provider key isn’t set, the router prioritizes Stooq and backfills gaps with Tiingo when available.
 - Snapshot output is strict JSON on stdout; diagnostics print to stderr only when `--verbose` is used.
 - If the diff script says the baseline is missing, run `python dev/snapshot_weights.py --update-baseline`.
+
+## Validation & Preflight (V3)
+
+Run these three commands before merging or tagging a release to ensure portfolio simulation integrity:
+
+```bash
+bash dev/run_tests.sh
+python3 dev/validate_simulations.py --objective balanced --n-candidates 6
+python3 dev/snapshot_weights.py --update-baseline && bash dev/diff_weights.sh || true
+```
+
+PASS means:
+- All unit tests green
+- Validator: every gate (Data, Returns, Macro, Candidates, Metrics, Receipts) PASS
+- Baseline weights either unchanged (all Δ ≤ 2%) or intentionally refreshed
+
+Artifacts (JSON + CSV) live in `dev/artifacts/` when running scenarios; CI uploads validator logs on push.
+

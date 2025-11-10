@@ -1,0 +1,26 @@
+name: V3 Validator
+
+on:
+  push:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run balanced validator (JSON)
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
+        run: python dev/validate_simulations.py --objective balanced --n-candidates 6 --json > dev/artifacts/validator_result.json || true
+      - name: Upload validator artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validator-logs
+          path: dev/artifacts/
