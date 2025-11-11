@@ -38,6 +38,28 @@ def load_json(_path: str) -> dict:
     return json.loads(p.read_text())
 
 load_env_once('.env')
+# --- Cached helpers (speed) ---
+@st.cache_data(ttl=3600)
+def _cached_prices(sym_list, start="1900-01-01"):
+    try:
+        return get_prices(sym_list, start=start)
+    except Exception:
+        return pd.DataFrame()
+
+@st.cache_data(ttl=3600)
+def _cached_prices_with_prov(sym_list, start="1900-01-01"):
+    try:
+        return get_prices_with_provenance(sym_list, start=start)
+    except Exception:
+        return pd.DataFrame(), {}
+
+@st.cache_data(ttl=3600)
+def _cached_returns(prices_df: pd.DataFrame):
+    try:
+        return compute_returns(prices_df)
+    except Exception:
+        return pd.DataFrame()
+
 
 # --- Page config (must be first Streamlit command)
 st.set_page_config(
@@ -468,7 +490,11 @@ if run_btn:
             st.subheader("Backtest Metrics")
             with st.expander("What do these mean?", expanded=False):
                 st.markdown("""- **CAGR** annualized growth.\n- **Vol** annualized volatility.\n- **Sharpe** return/vol.\n- **MaxDD** largest peak→trough drop.\n- **N** observations.""")
-            st.json(metrics)
+            try:
+                _m = pd.Series(metrics)
+                st.table(_m.to_frame("value"))
+            except Exception:
+                st.write(metrics)
             st.subheader("Cumulative Growth (normalized)")
             try:
                 bench_df = get_prices(["SPY"])
@@ -481,7 +507,11 @@ if run_btn:
                     to_plot = pd.DataFrame({"Portfolio": curve})
             except Exception:
                 to_plot = pd.DataFrame({"Portfolio": curve})
-            st.line_chart(to_plot)
+            try:
+                to_plot_ds = to_plot.resample("W").last() if hasattr(to_plot, "resample") else to_plot
+            except Exception:
+                to_plot_ds = to_plot
+            st.line_chart(to_plot_ds)
             try:
                 start_dt = curve.index[0].date()
                 end_dt = curve.index[-1].date()
@@ -523,7 +553,10 @@ if run_btn:
             {"Baseline": path_baseline, "Ambitious": path_ambitious, "Aggressive": path_aggressive},
             axis=1
         ).dropna(how="all")
-        st.line_chart(paths)
+        try:
+            st.line_chart(paths.resample("M").last())
+        except Exception:
+            st.line_chart(paths)
 
         if not paths.empty:
             finals = paths.tail(1).T.reset_index()
@@ -841,17 +874,19 @@ with tabs[0]:
                 df_rows = pd.DataFrame(rows).sort_values(by="Score", ascending=False)
                 st.caption(f"Nudged ranking: {'ON' if use_regime_nudge else 'OFF'}")
                 st.dataframe(df_rows[["Name","Score","Sharpe_1Y","CAGR_1Y","Vol_1Y","MaxDD_1Y","Beta","VaR95","Equity%","Bonds%"]], use_container_width=True)
-                for _, r in df_rows.iterrows():
-                    with st.expander(f"Details: {r['Name']}"):
+                for idx, r in enumerate(df_rows.itertuples(index=False)):
+                    name = getattr(r, "Name")
+                    expanded = idx < 3
+                    with st.expander(f"Details: {name}", expanded=expanded):
                         st.write("Weights")
-                        st.dataframe(pd.Series(r["_weights"]).sort_values(ascending=False).to_frame("weight"))
+                        st.dataframe(pd.Series(getattr(r, "_weights")).sort_values(ascending=False).to_frame("weight"))
                         try:
-                            name = r["Name"]
                             curve = curves.get(name)
                             if curve is not None:
                                 try:
                                     bench_curve = (1 + spy_r.reindex(curve.index).fillna(0)).cumprod().rename("SPY (norm)")
                                     plot_df = pd.concat([curve.rename("Portfolio"), bench_curve], axis=1).dropna()
+                                    plot_df = plot_df.resample("W").last()
                                 except Exception:
                                     plot_df = curve.to_frame("Portfolio")
                                 st.line_chart(plot_df)

@@ -16,6 +16,18 @@ data/
 .ipynb_checkpoints/
 .DS_Store
 
+# Ignore dev artifacts and logs
+dev/artifacts/
+dev/*.log
+candidates.json
+*.snapshot.json
+*.weights.json
+*.cache
+
+# Keep config/*.json tracked (except credentials)
+!config/*.json
+config/credentials.env
+
 # Build test results (keep local)
 dev/builds/
 !dev/builds/.gitkeep

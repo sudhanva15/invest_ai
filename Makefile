@@ -56,3 +56,11 @@ build-diff:
 .PHONY: run-balanced run-growth run-stress validate test-all-v3
 run-balanced run-growth run-stress validate test-all-v3:
 	@$(MAKE) -C dev -f Makefile $@
+
+# =============================================================================
+# VERIFICATION
+# =============================================================================
+
+.PHONY: verify-all
+verify-all:
+	bash dev/verify_all.sh
