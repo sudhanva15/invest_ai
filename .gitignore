@@ -15,3 +15,7 @@ data/
 *.log
 .ipynb_checkpoints/
 .DS_Store
+
+# Build test results (keep local)
+dev/builds/
+!dev/builds/.gitkeep

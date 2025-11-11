@@ -11,8 +11,15 @@ def _normalize_stooq_symbol(sym: str) -> str:
 from pathlib import Path
 from datetime import date
 import urllib.error
+import sys
 
-_CACHE_DIR = Path("data/raw")
+# Determine repo root and absolute cache path
+if __name__ == "__main__":
+    _ROOT = Path(__file__).resolve().parents[2]
+else:
+    _ROOT = Path(__file__).resolve().parents[2]
+
+_CACHE_DIR = _ROOT / "data" / "raw"
 _CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 def _stooq_url(symbol: str) -> str:

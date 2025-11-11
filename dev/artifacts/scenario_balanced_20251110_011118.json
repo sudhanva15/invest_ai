@@ -1,0 +1,26 @@
+{
+  "objective": "balanced",
+  "tickers": [
+    "SPY",
+    "TLT"
+  ],
+  "start_date": "2020-01-01",
+  "horizon": "5y",
+  "n_candidates": 3,
+  "current_regime": "Unknown",
+  "shocks_applied": [],
+  "candidates": [
+    {
+      "name": "HRP - Sat 20%",
+      "weights": {
+        "SPY": 0.5403628908597221,
+        "TLT": 0.4596371091402779
+      },
+      "metrics": {
+        "full": {
+          "CAGR": 0.06987017584861976,
+          "Volatility": 0.15114090047864032,
+          "Sharpe": 0.4622850309039546,
+          "MaxDD": -0.28105331251606336,
+          "N": 1471,
+          "Start": 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 import pandas as pd
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Callable, Optional, Union, List
  # Robust config import (prefer env_tools; fallback to core path)
 try:
     from .utils.env_tools import load_config  # preferred
@@ -16,6 +17,33 @@ class UserProfile:
     monthly_contribution: float
     horizon_years: int
     risk_level: str
+
+
+@dataclass
+class ObjectiveConfig:
+    """
+    Configuration for a portfolio optimization objective.
+    
+    Attributes:
+        name: Human-readable name (e.g., "Income Focus", "Growth")
+        universe_filter: Callable that filters symbol list, or explicit list of symbols
+        bounds: Dict with keys: core_min, sat_max_total, sat_max_single
+                core_min: Minimum % in core assets (default: 0.65)
+                sat_max_total: Maximum % in all satellites (default: 0.35)
+                sat_max_single: Maximum % in any single satellite (default: 0.07)
+        optimizer: Default optimizer method ("hrp", "max_sharpe", "min_var", "risk_parity", "equal_weight")
+        notes: Description of strategy and constraints
+    """
+    name: str
+    universe_filter: Union[Callable[[List[str], dict], List[str]], List[str], None] = None
+    bounds: dict = field(default_factory=lambda: {
+        "core_min": 0.65,
+        "sat_max_total": 0.35,
+        "sat_max_single": 0.07,
+    })
+    optimizer: str = "hrp"
+    notes: str = ""
+
 
 def target_vol_for(level: str) -> float:
     # Default buckets if CFG['risk']['target_vol_buckets'] is absent
@@ -233,6 +261,100 @@ def _safe_get_weights(ef, symbols):
         return {} if n == 0 else {symbols[i]: 1.0 / n for i in range(n)}
     return {k: v / total for k, v in w.items()}
 
+
+# ========== Universe Filters for Objectives ==========
+
+def _filter_income_universe(symbols: List[str], catalog: dict) -> List[str]:
+    """Prefer bonds, dividend ETFs, REITs for income objective."""
+    income_classes = {"treasury_long", "corporate_bond", "high_yield", "tax_eff_muni", "reit", "tbills"}
+    equity_dividend = {"VYM", "SCHD", "DVY", "DGRO"}  # Dividend-focused ETFs
+    
+    filtered = []
+    for sym in symbols:
+        asset_class = _class_of_symbol(sym, catalog)
+        if asset_class in income_classes or sym.upper() in equity_dividend:
+            filtered.append(sym)
+        # Also include core equity for diversification (but less weight)
+        elif asset_class in {"public_equity", "public_equity_intl"}:
+            filtered.append(sym)
+    
+    return filtered if filtered else symbols
+
+
+def _filter_growth_universe(symbols: List[str], catalog: dict) -> List[str]:
+    """Prefer equities, growth ETFs, minimal bonds for growth objective."""
+    growth_classes = {"public_equity", "public_equity_intl", "public_equity_em"}
+    growth_etfs = {"QQQ", "VUG", "VGT", "XLK", "IWF"}  # Growth/tech ETFs
+    
+    filtered = []
+    for sym in symbols:
+        asset_class = _class_of_symbol(sym, catalog)
+        if asset_class in growth_classes or sym.upper() in growth_etfs:
+            filtered.append(sym)
+        # Include some bonds for balance
+        elif asset_class in {"corporate_bond", "treasury_long"} and len([s for s in filtered if _class_of_symbol(s, catalog) in {"corporate_bond", "treasury_long"}]) < 2:
+            filtered.append(sym)
+    
+    return filtered if filtered else symbols
+
+
+def _filter_preserve_universe(symbols: List[str], catalog: dict) -> List[str]:
+    """Prefer cash, short-term bonds, high-quality bonds for capital preservation."""
+    preserve_classes = {"tbills", "treasury_short", "corporate_bond", "tax_eff_muni"}
+    safe_etfs = {"BIL", "SHY", "BND", "LQD", "MUB", "GOVT"}
+    
+    filtered = []
+    for sym in symbols:
+        asset_class = _class_of_symbol(sym, catalog)
+        if asset_class in preserve_classes or sym.upper() in safe_etfs:
+            filtered.append(sym)
+        # Minimal equity exposure
+        elif asset_class == "public_equity" and len([s for s in filtered if _class_of_symbol(s, catalog) == "public_equity"]) < 1:
+            filtered.append(sym)
+    
+    return filtered if filtered else symbols
+
+
+# Default objective configurations
+DEFAULT_OBJECTIVES = {
+    "income": ObjectiveConfig(
+        name="Income Focus",
+        universe_filter=_filter_income_universe,
+        bounds={"core_min": 0.70, "sat_max_total": 0.30, "sat_max_single": 0.05},
+        optimizer="risk_parity",
+        notes="Emphasizes dividend-paying equities, bonds, and REITs. Core 70%+, satellites ≤30%, single ≤5%."
+    ),
+    "growth": ObjectiveConfig(
+        name="Growth Focus",
+        universe_filter=_filter_growth_universe,
+        bounds={"core_min": 0.65, "sat_max_total": 0.35, "sat_max_single": 0.07},
+        optimizer="max_sharpe",
+        notes="Equity-heavy with growth/tech bias. Core 65%+, satellites ≤35%, single ≤7%."
+    ),
+    "balanced": ObjectiveConfig(
+        name="Balanced",
+        universe_filter=None,  # Use full universe
+        bounds={"core_min": 0.70, "sat_max_total": 0.30, "sat_max_single": 0.06},
+        optimizer="hrp",
+        notes="Balanced equity/bond mix. Core 70%+, satellites ≤30%, single ≤6%."
+    ),
+    "preserve": ObjectiveConfig(
+        name="Capital Preservation",
+        universe_filter=_filter_preserve_universe,
+        bounds={"core_min": 0.80, "sat_max_total": 0.20, "sat_max_single": 0.04},
+        optimizer="min_var",
+        notes="Low-risk: treasuries, short-term bonds, minimal equity. Core 80%+, satellites ≤20%, single ≤4%."
+    ),
+    "barbell": ObjectiveConfig(
+        name="Barbell Strategy",
+        universe_filter=None,  # Use full universe but apply barbell logic in candidates
+        bounds={"core_min": 0.65, "sat_max_total": 0.35, "sat_max_single": 0.08},
+        optimizer="hrp",
+        notes="Mix of safe (treasuries) and aggressive (growth equity/alts). Core 65%+, satellites ≤35%, single ≤8%."
+    ),
+}
+
+
 # ---- Primary recommender (HRP/MVO with class bounds and risk slider) ----
 def recommend(returns, profile, objective="grow", risk_pct=50, catalog=None, method="hrp"):
     """
@@ -399,6 +521,391 @@ def recommend(returns, profile, objective="grow", risk_pct=50, catalog=None, met
     }
     
     return {"weights": w, "metrics": metrics, "curve": curve, "context": context}
+
+
+# ========== Candidate Generation for V3 ==========
+
+# Feature flags for V3 enhancements
+RANK_DIVERSITY = True  # Enable ranking diversity penalties (default: True)
+DETERMINISTIC_SEED = 42  # Seed for reproducible randomness
+
+
+def generate_candidates(
+    returns: pd.DataFrame,
+    objective_cfg: ObjectiveConfig,
+    catalog: Optional[dict] = None,
+    n_candidates: int = 8,
+    profile: Optional[UserProfile] = None,
+    seed: Optional[int] = None
+) -> List[dict]:
+    """
+    Generate multiple portfolio candidates for a given objective.
+    
+    Args:
+        returns: DataFrame of daily returns (columns=symbols, index=dates)
+        objective_cfg: ObjectiveConfig with universe filter, bounds, default optimizer
+        catalog: Asset catalog for classification (optional)
+        n_candidates: Target number of candidates to generate (default: 8)
+        profile: UserProfile (optional, for interface compatibility)
+        seed: Random seed for deterministic behavior (default: DETERMINISTIC_SEED)
+    
+    Returns:
+        List of candidate dicts, each with keys:
+            - name: Descriptive name (e.g., "HRP - Sat 30%")
+            - weights: Dict of symbol -> weight
+            - metrics: Dict from annualized_metrics() (CAGR, Vol, Sharpe, MaxDD, N)
+            - notes: Brief description of variant
+            - optimizer: Method used
+            - sat_cap: Satellite cap used
+    
+    Strategy:
+        - Vary optimizer: hrp, max_sharpe, min_var, risk_parity, equal_weight
+        - Vary satellite caps: [0.20, 0.25, 0.30, 0.35]
+        - Apply objective-specific universe filter
+        - Enforce constraints via apply_weight_constraints
+        - Use standardized annualized_metrics for consistent evaluation
+        
+    V3 Enhancements (RANK_DIVERSITY flag):
+        - Concentration penalty: max(0, max_weight - 0.20)
+        - Sector penalty: soft caps for equity/bonds based on objective
+        - Regime nudge: bonus for current-regime Sharpe
+    """
+    import numpy as np
+    from core.utils.metrics import annualized_metrics
+    
+    # Set deterministic seed if provided
+    if seed is None:
+        seed = DETERMINISTIC_SEED
+    if seed is not None:
+        np.random.seed(seed)
+    
+    catalog = catalog or {"assets": []}
+    
+    # Ensure bounds is always a valid dict
+    if not hasattr(objective_cfg, "bounds") or objective_cfg.bounds is None:
+        objective_cfg.bounds = {"core_min": 0.65, "sat_max_total": 0.35, "sat_max_single": 0.07}
+    # Defensive: convert any None in bounds to defaults
+    for k, v in {"core_min": 0.65, "sat_max_total": 0.35, "sat_max_single": 0.07}.items():
+        if objective_cfg.bounds.get(k) is None:
+            objective_cfg.bounds[k] = v
+
+    # Apply universe filter if provided
+    all_symbols = list(returns.columns)
+    if objective_cfg.universe_filter:
+        if callable(objective_cfg.universe_filter):
+            filtered_symbols = objective_cfg.universe_filter(all_symbols, catalog)
+        else:
+            filtered_symbols = [s for s in all_symbols if s in objective_cfg.universe_filter]
+    else:
+        filtered_symbols = all_symbols
+
+    # Subset returns to filtered universe, drop columns with all NaN or zero std
+    rets = returns[filtered_symbols].dropna(how="all")
+    rets = rets.loc[:, rets.std() > 0]
+    rets = rets.loc[:, ~rets.isnull().all()]
+    rets = rets.loc[:, rets.apply(lambda x: not x.isnull().all() and np.isfinite(x).all(), axis=0)]
+    if rets.empty or len(rets.columns) == 0:
+        print("[diagnostic] No valid returns after filtering for candidate generation.")
+        return []
+    
+    symbols = list(rets.columns)
+    
+    # Define variant space
+    optimizers = ["hrp", "max_sharpe", "min_var", "risk_parity", "equal_weight"]
+    sat_caps = [0.20, 0.25, 0.30, 0.35]
+    
+    candidates = []
+    
+    # Generate candidates by varying optimizer and satellite cap
+    for opt_method in optimizers:
+        for sat_cap in sat_caps:
+            if len(candidates) >= n_candidates:
+                break
+            variant_name = f"{opt_method.upper()} - Sat {int(sat_cap*100)}%"
+            try:
+                w = _optimize_with_method(
+                    rets=rets,
+                    symbols=symbols,
+                    method=opt_method,
+                    catalog=catalog,
+                    objective_cfg=objective_cfg
+                )
+                if not w or sum(w.values()) == 0:
+                    print(f"[diagnostic] Skipping candidate: {variant_name} (empty weights)")
+                    continue
+                w = _apply_objective_constraints(
+                    w,
+                    symbols=symbols,
+                    catalog=catalog,
+                    core_min=objective_cfg.bounds.get("core_min", 0.65),
+                    sat_max_total=sat_cap,
+                    sat_max_single=objective_cfg.bounds.get("sat_max_single", 0.07)
+                )
+                if not w or sum(w.values()) == 0:
+                    print(f"[diagnostic] Skipping candidate: {variant_name} (zero after constraints)")
+                    continue
+                weights_vec = pd.Series(w).reindex(rets.columns).fillna(0.0)
+                port_ret = (rets * weights_vec).sum(axis=1)
+                if port_ret.isnull().all() or port_ret.std() == 0:
+                    print(f"[diagnostic] Skipping candidate: {variant_name} (NaN or zero std returns)")
+                    continue
+                metrics = annualized_metrics(port_ret)
+                print(f"[diagnostic] Candidate: {variant_name} | optimizer={opt_method} | sat_cap={sat_cap} | bounds={objective_cfg.bounds}")
+                candidates.append({
+                    "name": variant_name,
+                    "weights": w,
+                    "metrics": metrics,
+                    "notes": f"{objective_cfg.notes} | Optimizer: {opt_method}, Sat cap: {sat_cap:.0%}",
+                    "optimizer": opt_method,
+                    "sat_cap": sat_cap,
+                })
+            except Exception as e:
+                print(f"[diagnostic] Exception in candidate {variant_name}: {e}")
+                continue
+        if len(candidates) >= n_candidates:
+            break
+    
+    # V3: Compute enhanced scores with diversity penalties (if RANK_DIVERSITY enabled)
+    if RANK_DIVERSITY:
+        # Get current regime for regime nudge
+        try:
+            from core.macro.regime import load_macro_data, regime_features, label_regimes, current_regime, regime_performance
+            macro_df = load_macro_data()
+            if not macro_df.empty:
+                features = regime_features(macro_df)
+                labels = label_regimes(features, method="rule_based")
+                curr_regime = current_regime(features=features, labels=labels)
+            else:
+                curr_regime = "Unknown"
+        except Exception:
+            curr_regime = "Unknown"
+        
+        # Compute regime-specific performance for each candidate
+        for cand in candidates:
+            weights_vec = pd.Series(cand["weights"]).reindex(returns.columns).fillna(0.0)
+            port_ret = (returns * weights_vec).sum(axis=1)
+            
+            # Compute diversity penalties
+            max_weight = max(cand["weights"].values())
+            concentration_penalty = max(0.0, max_weight - 0.20)
+            
+            # Sector penalty: coarse asset map from ticker names
+            equity_total = sum(v for k, v in cand["weights"].items() if _is_equity_ticker(k))
+            bonds_total = sum(v for k, v in cand["weights"].items() if _is_bond_ticker(k))
+            
+            # Objective-specific sector caps
+            obj_name = objective_cfg.notes.lower() if objective_cfg.notes else ""
+            if "growth" in obj_name:
+                sector_penalty = max(0.0, equity_total - 0.80)  # Cap equity at 80%
+            elif "balanced" in obj_name or "income" in obj_name:
+                sector_penalty = max(0.0, 0.20 - bonds_total)  # Min bonds 20%
+            else:
+                sector_penalty = 0.0
+            
+            # Regime nudge: compute regime Sharpe for current regime
+            regime_sharpe = 0.0
+            if curr_regime != "Unknown":
+                try:
+                    if not macro_df.empty:
+                        regime_perf = regime_performance(port_ret, labels)
+                        if curr_regime in regime_perf and "Sharpe" in regime_perf[curr_regime]:
+                            regime_sharpe = regime_perf[curr_regime]["Sharpe"]
+                except Exception:
+                    pass
+            
+            # Enhanced score with diversity penalties
+            sharpe = cand["metrics"].get("Sharpe", 0.0)
+            maxdd = cand["metrics"].get("MaxDD", 0.0)
+            
+            # Base score: Sharpe - 0.2*|MaxDD|
+            base_score = sharpe - 0.2 * abs(maxdd)
+            
+            # Enhanced score with penalties
+            enhanced_score = (
+                base_score
+                - 0.1 * concentration_penalty
+                - 0.1 * sector_penalty
+                + 0.1 * regime_sharpe
+            )
+            
+            cand["score"] = enhanced_score
+            cand["base_score"] = base_score
+            cand["concentration_penalty"] = concentration_penalty
+            cand["sector_penalty"] = sector_penalty
+            cand["regime_sharpe"] = regime_sharpe
+    else:
+        # Legacy scoring: Sharpe - 0.2*|MaxDD|
+        for cand in candidates:
+            sharpe = cand["metrics"].get("Sharpe", 0.0)
+            maxdd = cand["metrics"].get("MaxDD", 0.0)
+            cand["score"] = sharpe - 0.2 * abs(maxdd)
+    
+    # Sort by enhanced score (descending) and mark top as shortlist
+    candidates = sorted(candidates, key=lambda x: x.get("score", -999), reverse=True)
+    
+    # Tag the best one
+    if candidates:
+        candidates[0]["shortlist"] = True
+    
+    return candidates[:n_candidates]
+
+
+def _is_equity_ticker(ticker: str) -> bool:
+    """
+    Coarse heuristic to classify equity tickers.
+    """
+    equity_tickers = {
+        "SPY", "QQQ", "IWM", "VTI", "VOO", "VTV", "VUG", "VGT", "XLK", "VEA", "VWO",
+        "EEM", "EFA", "DIA", "VNQ", "AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA", "NVDA"
+    }
+    return ticker.upper() in equity_tickers
+
+
+def _is_bond_ticker(ticker: str) -> bool:
+    """
+    Coarse heuristic to classify bond/cash tickers.
+    """
+    bond_tickers = {
+        "TLT", "IEF", "SHY", "BIL", "AGG", "BND", "MUB", "LQD", "HYG", "TIP", "GOVT"
+    }
+    return ticker.upper() in bond_tickers
+
+
+def _optimize_with_method(
+    rets: pd.DataFrame,
+    symbols: List[str],
+    method: str,
+    catalog: dict,
+    objective_cfg: ObjectiveConfig
+) -> dict:
+    """
+    Run optimization with a specific method.
+    
+    Returns:
+        Dict of symbol -> weight (before constraint enforcement)
+    """
+    import numpy as np
+    from pypfopt import expected_returns, risk_models, HRPOpt
+    from pypfopt.efficient_frontier import EfficientFrontier
+    
+    method = method.lower()
+    
+    if method == "equal_weight":
+        n = len(symbols)
+        return {s: 1.0/n for s in symbols}
+    
+    # Compute expected returns and covariance
+    mu = expected_returns.mean_historical_return(rets, frequency=252)
+    try:
+        from pypfopt.risk_models import CovarianceShrinkage
+        S = CovarianceShrinkage(rets).ledoit_wolf()
+    except Exception:
+        S = risk_models.sample_cov(rets, frequency=252)
+    
+    if method == "hrp":
+        try:
+            hrp = HRPOpt(rets)
+            w = hrp.optimize()
+            return {k: float(v) for k, v in w.items() if v > 0}
+        except Exception:
+            # Fallback to equal weight
+            n = len(symbols)
+            return {s: 1.0/n for s in symbols}
+    
+    elif method in ["max_sharpe", "min_var", "risk_parity"]:
+        try:
+            ef = EfficientFrontier(mu, S, weight_bounds=(0, 1))
+            
+            if method == "max_sharpe":
+                ef.max_sharpe()
+            elif method == "min_var":
+                ef.min_volatility()
+            elif method == "risk_parity":
+                # Approximate risk parity via efficient risk
+                target_vol = 0.12  # Moderate volatility target
+                ef.efficient_risk(target_volatility=target_vol)
+            
+            w = ef.clean_weights()
+            return {k: float(v) for k, v in w.items() if v > 0}
+        except Exception:
+            n = len(symbols)
+            return {s: 1.0/n for s in symbols}
+    
+    else:
+        # Unknown method, fallback
+        n = len(symbols)
+        return {s: 1.0/n for s in symbols}
+
+
+def _apply_objective_constraints(
+    weights: dict,
+    symbols: List[str],
+    catalog: dict,
+    core_min: float = 0.65,
+    sat_max_total: float = 0.35,
+    sat_max_single: float = 0.07
+) -> dict:
+    """
+    Apply Core/Satellite constraints to portfolio weights.
+    
+    Args:
+        weights: Dict of symbol -> weight (pre-constraint)
+        symbols: List of all symbols
+        catalog: Asset catalog for classification
+        core_min: Minimum % in core assets
+        sat_max_total: Maximum % in all satellites
+        sat_max_single: Maximum % in any single satellite
+    
+    Returns:
+        Dict of symbol -> weight (post-constraint, normalized)
+    """
+    try:
+        from core.portfolio.constraints import apply_weight_constraints
+        
+        # Classify symbols
+        core_classes = {"public_equity", "public_equity_intl", "public_equity_em", 
+                       "treasury_long", "corporate_bond", "high_yield", "tax_eff_muni", "tbills"}
+        sat_classes = {"commodities", "gold", "reit", "public_equity_sector", "public_equity_style"}
+        
+        CORE = [s for s in symbols if _class_of_symbol(s, catalog) in core_classes]
+        SATS = [s for s in symbols if _class_of_symbol(s, catalog) in sat_classes]
+        
+        w = apply_weight_constraints(
+            weights,
+            core_symbols=CORE,
+            satellite_symbols=SATS,
+            core_min=core_min,
+            satellite_max=sat_max_total,
+            single_max=sat_max_single,
+        )
+        
+        # Renormalize
+        total = sum(max(0.0, float(v)) for v in w.values())
+        if total > 0:
+            w = {k: float(v) / total for k, v in w.items()}
+        else:
+            # Fallback to equal weight
+            n = len(symbols)
+            w = {symbols[i]: 1.0 / n for i in range(n)}
+        
+        return w
+    except ImportError:
+        # If constraints module not available, return weights as-is
+        total = sum(max(0.0, float(v)) for v in weights.values())
+        if total > 0:
+            return {k: float(v) / total for k, v in weights.items()}
+        else:
+            n = len(symbols)
+            return {symbols[i]: 1.0 / n for i in range(n)}
+    except Exception:
+        # Any other error, return normalized weights
+        total = sum(max(0.0, float(v)) for v in weights.values())
+        if total > 0:
+            return {k: float(v) / total for k, v in weights.items()}
+        else:
+            n = len(symbols)
+            return {symbols[i]: 1.0 / n for i in range(n)}
+
 
 # ---- Per-ticker statistics used by UI tables ----
 def compute_asset_stats(prices_df):

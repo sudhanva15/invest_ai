@@ -1,0 +1,59 @@
+name: Scenario Smoke Test
+
+# Feature flag: default OFF (enable by uncommenting schedule)
+# Run nightly at 6 AM UTC and on every push to main
+
+on:
+  push:
+    branches:
+      - main
+  # schedule:
+  #   - cron: "0 6 * * *"  # Uncomment to enable nightly runs
+
+jobs:
+  scenario-smoke:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run balanced scenario smoke test
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
+        run: |
+          python dev/run_scenarios.py \
+            --objective balanced \
+            --n-candidates 6 \
+            --tickers SPY,TLT,GLD \
+            --start 2020-01-01 \
+            --out dev/artifacts/ci_smoke
+      
+      - name: Upload scenario artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: scenario-results
+          path: |
+            dev/artifacts/ci_smoke.json
+            dev/artifacts/ci_smoke_weights.csv
+            dev/artifacts/ci_smoke_metrics.csv
+          retention-days: 30
+      
+      - name: Verify outputs exist
+        run: |
+          test -f dev/artifacts/ci_smoke.json
+          test -f dev/artifacts/ci_smoke_weights.csv
+          test -f dev/artifacts/ci_smoke_metrics.csv
+          echo "✅ All output files generated successfully"

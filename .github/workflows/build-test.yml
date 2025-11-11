@@ -1,0 +1,99 @@
+name: Build Test
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  build-test:
+    name: Test Build ${{ github.sha }}
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for proper version stamping
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Create virtual environment
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade pip
+      
+      - name: Install dependencies
+        run: |
+          source .venv/bin/activate
+          pip install -r requirements.txt
+      
+      - name: Configure API Keys
+        run: |
+          # Set API keys from secrets if available (non-blocking)
+          if [ -n "${{ secrets.FRED_API_KEY || '' }}" ]; then
+            echo "FRED_API_KEY=${{ secrets.FRED_API_KEY }}" >> $GITHUB_ENV
+          fi
+          if [ -n "${{ secrets.TIINGO_API_KEY || '' }}" ]; then
+            echo "TIINGO_API_KEY=${{ secrets.TIINGO_API_KEY }}" >> $GITHUB_ENV
+          fi
+      
+      - name: Run build test harness
+        run: |
+          source .venv/bin/activate
+          export PYTHON=.venv/bin/python3
+          bash dev/test_build.sh
+      
+      - name: Display build summary
+        if: always()
+        run: |
+          BUILD=$(source .venv/bin/activate && python -c "import sys; sys.path.insert(0, '.'); from core.utils.version import get_build_version; print(get_build_version())")
+          echo "Build: $BUILD"
+          
+          if [ -f "dev/builds/$BUILD/summary.json" ]; then
+            echo "=== Build Summary ==="
+            cat "dev/builds/$BUILD/summary.json"
+            echo ""
+          fi
+      
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-test-results
+          path: |
+            dev/builds/*/
+            !dev/builds/*/.gitkeep
+          retention-days: 30
+      
+      - name: Check build status
+        if: always()
+        run: |
+          BUILD=$(source .venv/bin/activate && python -c "import sys; sys.path.insert(0, '.'); from core.utils.version import get_build_version; print(get_build_version())")
+          
+          if [ -f "dev/builds/$BUILD/summary.json" ]; then
+            STATUS=$(python -c "import json; print(json.load(open('dev/builds/$BUILD/summary.json')).get('overall_status', 'UNKNOWN'))")
+            
+            if [ "$STATUS" = "PASS" ]; then
+              echo "✅ Build tests PASSED"
+              exit 0
+            else
+              echo "⚠️ Build tests had failures"
+              echo "Validator log:"
+              cat "dev/builds/$BUILD/validator.log" || true
+              echo ""
+              echo "Acceptance log:"
+              cat "dev/builds/$BUILD/acceptance.log" || true
+              exit 1
+            fi
+          else
+            echo "❌ No build summary found"
+            exit 1
+          fi
