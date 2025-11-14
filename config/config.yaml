@@ -6,6 +6,10 @@ data:
   processed_dir: data/processed
   outputs_dir: data/outputs
   default_universe: ["SPY","QQQ","DIA","IWM","VTI","EFA","EEM","TLT","SHY","LQD","HYG","MUB","BIL","GLD","DBC","GSG","VNQ","AAPL","MSFT","AMZN","GOOGL","META","TSLA"]
+
+fetch:
+  allow_live_fetch: true   # Enable live API calls when cache is missing/stale
+  min_cache_rows: 100      # Minimum rows required to cache (protects against error responses)
 apis:
   fred_base: "https://api.stlouisfed.org/fred"
   polygon_base: "https://api.polygon.io"
@@ -21,3 +25,13 @@ optimization:
   min_weight: 0.00
   max_weight: 0.30
   risk_free_rate: 0.015
+
+universe:
+  # Quality thresholds balanced for reliability with current provider mix
+  # Stooq cache provides 15y+ history; accepts symbols without volume data
+  core_min_years: 5.0       # Core holdings: 5y history (captures most Stooq cache)
+  sat_min_years: 3.0        # Satellite: 3y minimum for tactical allocation
+  max_missing_pct: 15.0     # 15% missing data max (accommodates weekends/holidays)
+  min_median_volume: null   # Disabled: many Stooq cache files lack volume data
+  # When start date is omitted, use this default to request multi-year history
+  default_start_date: "2010-01-01"

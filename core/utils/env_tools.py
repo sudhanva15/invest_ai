@@ -53,6 +53,11 @@ def load_config(config_path: str | Path = "config.yaml") -> dict:
     cfg["risk"].setdefault("min_weight", 0.0)
     cfg["risk"].setdefault("max_weight", 0.3)
     cfg["risk"].setdefault("risk_free_rate", 0.015)
+    # Universe validation thresholds (optional)
+    cfg.setdefault("universe", {})
+    cfg["universe"].setdefault("core_min_years", 10.0)
+    cfg["universe"].setdefault("sat_min_years", 7.0)
+    cfg["universe"].setdefault("max_missing_pct", 10.0)
     return cfg
 
 def ensure_dirs(cfg: dict) -> None:

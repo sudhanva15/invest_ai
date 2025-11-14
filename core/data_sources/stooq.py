@@ -1,5 +1,6 @@
 from __future__ import annotations
 import pandas as pd
+import logging
 
 def _normalize_stooq_symbol(sym: str) -> str:
     s = sym.strip().lower()
@@ -21,6 +22,7 @@ else:
 
 _CACHE_DIR = _ROOT / "data" / "raw"
 _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+logger = logging.getLogger(__name__)
 
 def _stooq_url(symbol: str) -> str:
     s = symbol.strip().lower()
@@ -174,9 +176,11 @@ def fetch_daily(symbol: str, start: str|None=None, end: str|None=None, force: bo
     p = Path("data/raw") / f"{sym}.csv"
     if not p.exists():
         # no local cache; return empty DataFrame
+        logger.debug(f"Stooq: source=cache miss for {sym}")
         return pd.DataFrame(columns=["date","open","high","low","close","adj_close","volume","ticker"])
 
     df = pd.read_csv(p)
+    logger.debug(f"Stooq: source=cache hit for {sym} ({len(df)} rows)")
     # Normalize column names
     df.columns = [str(c).strip().lower() for c in df.columns]
     # Map common Stooq schema ("date,price") to OHLC-ish

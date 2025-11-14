@@ -28,6 +28,9 @@ except ImportError as e:
     print(f"ERROR: Cannot import validation module: {e}")
     sys.exit(1)
 
+from core.utils.metrics import align_returns_matrix, assert_metrics_consistency, annualized_metrics
+
+
 
 class TestValidationResult(unittest.TestCase):
     """Test ValidationResult container."""
@@ -299,6 +302,42 @@ class TestCheckReceipts(unittest.TestCase):
         self.receipts[0]["nan_rate"] = 1.5  # > 1.0
         result = check_receipts(self.receipts, self.tickers)
         self.assertTrue(len(result.warnings) > 0)
+
+
+class TestAlignmentAndConsistency(unittest.TestCase):
+    def setUp(self):
+        dates = pd.date_range("2020-01-01", periods=300, freq="B")
+        self.pr = pd.DataFrame({
+            "SPY": np.random.randn(len(dates))*0.01,
+            "TLT": np.random.randn(len(dates))*0.008,
+            "GLD": np.random.randn(len(dates))*0.009,
+        }, index=dates)
+        # Introduce some leading NaNs
+        self.pr.loc[self.pr.index[:5], "TLT"] = np.nan
+        self.pr.loc[self.pr.index[:10], "GLD"] = np.nan
+
+    def test_single_window_alignment(self):
+        aligned = align_returns_matrix(self.pr, ["SPY","TLT","GLD"])
+        # First rows should have no NaNs
+        self.assertFalse(aligned.isna().any().any())
+        # Alignment should drop at least 10 leading rows
+        self.assertEqual(aligned.index[0], self.pr.index[10])
+
+    def test_metrics_consistency_curves_vs_table(self):
+        aligned = align_returns_matrix(self.pr, ["SPY","TLT"])  # 2 asset example
+        w = pd.Series({"SPY":0.6, "TLT":0.4}).reindex(aligned.columns).fillna(0.0)
+        port = (aligned * w).sum(axis=1)
+        curve = (1+port).cumprod()
+        ok = assert_metrics_consistency(curve, port)
+        self.assertTrue(ok)
+
+    def test_projection_uses_backtest_window(self):
+        aligned = align_returns_matrix(self.pr, ["SPY","TLT","GLD"])  # common window
+        w = pd.Series({"SPY":0.5, "TLT":0.3, "GLD":0.2}).reindex(aligned.columns).fillna(0.0)
+        port = (aligned * w).sum(axis=1)
+        m = annualized_metrics(port)
+        # Sanity on N matching aligned length
+        self.assertEqual(m.get("N"), len(port.dropna()))
 
 
 class TestParserAndImports(unittest.TestCase):

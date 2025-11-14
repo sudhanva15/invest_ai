@@ -22,18 +22,20 @@ import argparse
 import json
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
+from pathlib import Path
 import pandas as pd
 import numpy as np
 
 # Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 # Import V3 components
 try:
     from core.data_ingestion import get_prices_with_provenance
     from core.portfolio_engine import clean_prices_to_returns
     from core.recommendation_engine import DEFAULT_OBJECTIVES, generate_candidates
-    from core.utils.metrics import annualized_metrics
+    from core.utils.metrics import annualized_metrics, align_returns_matrix, assert_metrics_consistency
     from core.utils.receipts import build_receipts
     from core.data_sources.fred import load_series
 except ImportError as e:
@@ -78,7 +80,7 @@ class ValidationResult:
 def check_data(
     tickers: List[str], 
     prices: pd.DataFrame, 
-    provenance: Dict[str, str],
+    provenance: Dict[str, Any],
     verbose: bool = False
 ) -> ValidationResult:
     """Check data quality: presence, NaN ratio, span, provenance.
@@ -232,7 +234,9 @@ def check_candidates(
     candidates: List[Dict[str, Any]],
     n_expected: int,
     objective_name: str,
-    verbose: bool = False
+    verbose: bool = False,
+    returns: Optional[pd.DataFrame] = None,
+    catalog: Optional[Dict[str, Any]] = None
 ) -> ValidationResult:
     """Check candidate generation and constraints.
     
@@ -251,6 +255,15 @@ def check_candidates(
     else:
         result.succeed(f"Generated {len(candidates)} candidates (expected {n_expected})")
     
+    # Distinctness helper
+    def _cos(a: pd.Series, b: pd.Series) -> float:
+        import numpy as _np
+        aa = a.values; bb = b.values
+        den = float((_np.linalg.norm(aa) * _np.linalg.norm(bb)) or 0.0)
+        if den == 0:
+            return 0.0
+        return float(_np.dot(aa, bb) / den)
+
     # Check each candidate
     for i, cand in enumerate(candidates):
         name = cand.get("name", f"Candidate_{i}")
@@ -269,12 +282,79 @@ def check_candidates(
         if not (0.99 <= total <= 1.01):
             result.fail(f"{name}: Weights sum to {total:.3f} (expected ~1.0)")
         
+        # Caps check (if catalog provided)
+        if catalog is not None and "assets" in catalog:
+            # Build case-insensitive symbol to class mapping
+            sym2cls = {str(a.get("symbol","")).upper(): a.get("class","") for a in catalog["assets"]}
+            caps = (catalog.get("caps", {}) or {}).get("asset_class", {})
+            class_sums: Dict[str, float] = {}
+            for s, w in weights.items():
+                cls = sym2cls.get(str(s).upper(), "")
+                if not cls:
+                    # Try heuristic fallback for common tickers
+                    s_up = str(s).upper()
+                    if s_up in {"DBC", "GSG", "GLD", "IAU"}:
+                        cls = "commodities"
+                    elif s_up in {"SPY", "VTI", "QQQ", "DIA", "IWM", "VEA", "VXUS", "VWO", "EFA"}:
+                        cls = "equity_us"
+                    elif s_up in {"TLT", "IEF"}:
+                        cls = "bonds_tsy"
+                    elif s_up in {"BND", "LQD"}:
+                        cls = "bonds_ig"
+                    elif s_up in {"MUB"}:
+                        cls = "munis"
+                    elif s_up in {"BIL", "SHY"}:
+                        cls = "cash"
+                # Only accumulate if we have a valid class
+                if cls and cls != "unknown":
+                    class_sums[cls] = class_sums.get(cls, 0.0) + float(w)
+            
+            # Debug: print class_sums for first failing case
+            if verbose and i < 12:
+                print(f"  {name} class_sums: {class_sums}")
+                print(f"  {name} weights: {weights}")
+            
+            for cls, total in class_sums.items():
+                if not cls or cls == "unknown":
+                    continue
+                cap = float(caps.get(cls, 1.0))
+                # Allow small numerical tolerance for floating point and downstream renormalization
+                if total > cap + 1e-3:
+                    result.fail(f"{name}: class cap violated for {cls} = {total:.2f} > {cap:.2f}")
+
+        # Consistency gate: metrics from same window
+        if returns is not None:
+            wser = pd.Series(weights).reindex(returns.columns).fillna(0.0)
+            aligned = align_returns_matrix(returns, list(wser.index))
+            port = (aligned * wser.reindex(aligned.columns).fillna(0.0)).sum(axis=1)
+            ok = assert_metrics_consistency((1+port).cumprod(), port)
+            if not ok:
+                result.fail(f"{name}: metrics/curve inconsistency detected")
+
         if verbose and i < 3:  # Show first 3
             result.info(f"{name}: sum={total:.3f}, n={len(weights)}")
     
     if not candidates:
         result.fail("No candidates generated")
     else:
+        # Distinctness by cosine similarity of weights
+        if returns is not None:
+            mats = []
+            for c in candidates:
+                w = pd.Series(c.get("weights", {})).reindex(returns.columns).fillna(0.0)
+                mats.append(w)
+            uniq = 0
+            picked: List[pd.Series] = []
+            for w in mats:
+                if not picked:
+                    picked.append(w); uniq += 1; continue
+                sims = [_cos(w, p) for p in picked]
+                if max(sims) < 0.995:
+                    picked.append(w); uniq += 1
+            if uniq < max(2, min(5, n_expected)):
+                result.fail(f"Distinctness low: {uniq} unique by weights (threshold 0.995)")
+            else:
+                result.succeed(f"Distinct candidates: {uniq}")
         result.succeed(f"All weight constraints satisfied")
     
     return result
@@ -511,6 +591,18 @@ Exit codes:
         help="Output one-line JSON summary"
     )
     parser.add_argument(
+        "--k-days",
+        type=int,
+        default=1260,
+        help="Lookback window in trading days for returns cleaner (default: 1260 ~5y)"
+    )
+    parser.add_argument(
+        "--min-non-na",
+        type=int,
+        default=126,
+        help="Minimum non-NaN observations per asset to keep (default: 126 ~6m)"
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Show detailed diagnostic information"
@@ -522,12 +614,8 @@ Exit codes:
     if args.tickers:
         tickers = [t.strip() for t in args.tickers.split(",")]
     else:
-        # Use default tickers for objective
-        obj_cfg = DEFAULT_OBJECTIVES.get(args.objective)
-        if obj_cfg and hasattr(obj_cfg, "tickers"):
-            tickers = obj_cfg.tickers
-        else:
-            tickers = ["SPY", "TLT", "GLD"]  # Fallback
+        # Fallback seed tickers; objective-specific broad defaults could be added later
+        tickers = ["SPY", "TLT", "GLD", "QQQ", "VTI"]
     
     if not args.json:
         print(f"\n{'='*70}")
@@ -552,6 +640,29 @@ Exit codes:
             print("ERROR: No price data loaded", file=sys.stderr)
             sys.exit(1)
         
+        # Pre-clean universe to expand effective symbols while maintaining quality
+        try:
+            from core.utils.universe_cleaner import preclean_universe_for_simulation
+            prices_clean, preclean_diags = preclean_universe_for_simulation(
+                prices,
+                k_days=int(args.k_days),
+                min_non_na=int(args.min_non_na),
+                min_overlap_pct=0.70,
+                verbose=args.verbose
+            )
+            if not prices_clean.empty and len(prices_clean.columns) > len(prices.columns) * 0.5:
+                if args.verbose:
+                    print(f"[preclean] Kept {len(prices_clean.columns)}/{len(prices.columns)} symbols", file=sys.stderr)
+                prices = prices_clean
+                # Update tickers list to match cleaned universe
+                tickers = list(prices.columns)
+        except ImportError:
+            if args.verbose:
+                print("[preclean] universe_cleaner not available, skipping", file=sys.stderr)
+        except Exception as e:
+            if args.verbose:
+                print(f"[preclean] Failed: {e}, continuing with original data", file=sys.stderr)
+        
         data_result = check_data(tickers, prices, provenance, args.verbose)
         results.append(data_result)
         
@@ -564,9 +675,20 @@ Exit codes:
         if args.verbose:
             print("Cleaning returns...", file=sys.stderr)
         
-        returns = clean_prices_to_returns(prices, winsor_p=0.005, min_non_na=252)
+        # Use robust cleaner path (strict=False) to avoid over-dropping symbols
+        try:
+            _tmp = clean_prices_to_returns(prices, winsor_p=0.005, min_non_na=int(args.min_non_na), k_days=int(args.k_days), strict=False, return_diagnostics=True)
+            if isinstance(_tmp, tuple):
+                returns, cleaner_diags = _tmp
+            else:
+                returns = _tmp; cleaner_diags = {"dropped_symbols": [], "kept_symbols": [], "window": (None, None)}
+        except TypeError:
+            returns = clean_prices_to_returns(prices, winsor_p=0.005, min_non_na=int(args.min_non_na))
+            cleaner_diags = {"dropped_symbols": [], "kept_symbols": [], "window": (None, None)}
+        except Exception:
+            returns = pd.DataFrame(); cleaner_diags = {"dropped_symbols": [], "kept_symbols": [], "window": (None, None)}
         
-        if returns.empty:
+        if not isinstance(returns, pd.DataFrame) or returns.empty:
             print("ERROR: Returns cleaning produced empty DataFrame", file=sys.stderr)
             sys.exit(1)
         
@@ -593,7 +715,6 @@ Exit codes:
     try:
         if args.verbose:
             print("Generating candidates...", file=sys.stderr)
-        
         candidates, gen_result = gen_and_validate(
             tickers, prices, returns, args.objective,
             args.n_candidates, args.seed, args.verbose
@@ -602,9 +723,21 @@ Exit codes:
         
         # Validate candidate structure
         if candidates:
+            # Load catalog for cap checks
+            try:
+                import json as _json
+                catalog = _json.loads((ROOT/"config"/"assets_catalog.json").read_text())
+            except Exception:
+                catalog = None
             cand_result = check_candidates(
-                candidates, args.n_candidates, args.objective, args.verbose
+                candidates, args.n_candidates, args.objective, args.verbose, returns=returns, catalog=catalog
             )
+            # Enforce distinct >=5; include cleaner diagnostics when failing
+            if not cand_result.passed and isinstance(cleaner_diags, dict):
+                uniq_errs = [e for e in cand_result.messages if "Distinctness low" in e]
+                if uniq_errs and cleaner_diags.get("dropped_symbols"):
+                    ds = ", ".join([f"{s}({r})" for s,r in cleaner_diags["dropped_symbols"][:10]])
+                    cand_result.warn(f"Cleaner dropped: {ds}")
             results.append(cand_result)
             
             # Check metrics

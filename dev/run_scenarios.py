@@ -174,6 +174,13 @@ def parse_args():
         default=None,
         help='Force regime label: {"regime": "Tightening"}'
     )
+    parser.add_argument(
+        "--tilt",
+        type=str,
+        default="ON",
+        choices=["ON","OFF"],
+        help="Apply macro regime tilt to weights (default: ON)"
+    )
     
     # Output
     parser.add_argument(
@@ -610,7 +617,8 @@ def main():
                 objective_cfg,
                 catalog=CAT,
                 n_candidates=args.n_candidates,
-                seed=args.seed
+                seed=args.seed,
+                tilt=(args.tilt.upper() == "ON")
             )
         else:
             # Use custom variant generator when overrides provided

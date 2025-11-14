@@ -1,5 +1,5 @@
 import numpy as np, pandas as pd
-from typing import Any
+from typing import Any, Optional, Dict, Tuple
 
 # Defensive imports: allow runtime without pypfopt (fallback to equal-weight)
 _risk_models: Any = None
@@ -23,13 +23,106 @@ try:
 except Exception:  # fallback if package layout differs
     from core.utils.env_tools import load_config  # type: ignore
 
-# Import robust returns cleaning utility
+# Import legacy cleaner (kept for strict mode and backward compatibility)
 try:
-    from .utils.returns_cleaner import clean_prices_to_returns
+    from .utils.returns_cleaner import clean_prices_to_returns as _legacy_cleaner
 except Exception:
-    from core.utils.returns_cleaner import clean_prices_to_returns  # type: ignore
+    from core.utils.returns_cleaner import clean_prices_to_returns as _legacy_cleaner  # type: ignore
 
 CFG = load_config()
+
+# ---------------- Robust returns cleaning (per-asset then align) ----------------
+def clean_prices_to_returns(
+    prices: pd.DataFrame,
+    winsor_p: float = 0.005,
+    min_non_na: int = 126,
+    k_days: int = 1260,
+    strict: bool = False,
+    return_diagnostics: bool = False,
+) -> pd.DataFrame | Tuple[pd.DataFrame, Dict[str, Any]]:
+    """
+    Robust price->returns cleaning with per-asset returns first, then outer-join alignment.
+
+    - Coerce each column to numeric (to_numeric errors='coerce')
+    - Forward-fill up to 5 consecutive missing values per asset (bounded ffill)
+    - Compute pct_change per column with fill_method=None (no implicit ffills)
+    - Outer-join all return series on date index
+    - Select last k_days trading days window where columns have at least min_non_na points
+    - Drop columns still failing min_non_na
+    - Optionally winsorize tails symmetrically by winsor_p
+    - Return diagnostics when requested
+
+    strict=True switches to legacy strict behavior (min_non_na>=252, full intersection alignment).
+    """
+    import numpy as _np
+    import pandas as _pd
+
+    if prices is None or len(prices) == 0:
+        return (_pd.DataFrame(), {"dropped_symbols": [], "kept_symbols": [], "window": (None, None)}) if return_diagnostics else _pd.DataFrame()
+
+    if strict:
+        # Delegate to legacy cleaner with stricter defaults
+        out = _legacy_cleaner(prices, winsor_p=winsor_p, min_non_na=max(252, int(min_non_na)))
+        diags = {"mode": "strict", "dropped_symbols": [], "kept_symbols": list(out.columns), "window": (out.index.min(), out.index.max())}
+        return (out, diags) if return_diagnostics else out
+
+    # Per-asset returns first
+    returns_list = []
+    kept = []
+    dropped = []
+    for col in prices.columns:
+        s = _pd.to_numeric(prices[col], errors="coerce")
+        # Bounded forward-fill small gaps (e.g., long weekends / occasional misses)
+        s = s.ffill(limit=5)
+        r = s.pct_change(fill_method=None)
+        if r.count() < min_non_na:
+            dropped.append((str(col), "too-few-points"))
+            continue
+        if not _np.isfinite(r).any():
+            dropped.append((str(col), "non-finite"))
+            continue
+        returns_list.append(r.rename(str(col)))
+        kept.append((str(col), int(r.notna().sum())))
+
+    if not returns_list:
+        out = _pd.DataFrame()
+        diags = {"dropped_symbols": dropped, "kept_symbols": [], "window": (None, None)}
+        return (out, diags) if return_diagnostics else out
+
+    # Outer-join by index
+    rets = _pd.concat(returns_list, axis=1, join="outer")
+    rets.index = _pd.to_datetime(rets.index, errors="coerce")
+    rets = rets.sort_index()
+
+    # Select last k_days window
+    if k_days and k_days > 0 and len(rets.index) > k_days:
+        rets = rets.iloc[-k_days:]
+
+    # Drop columns failing min_non_na within window
+    ok_cols = [c for c in rets.columns if rets[c].count() >= int(min_non_na)]
+    dropped += [(c, "too-few-points-window") for c in rets.columns if c not in ok_cols]
+    rets = rets[ok_cols]
+
+    if rets.empty:
+        diags = {"dropped_symbols": dropped, "kept_symbols": [], "window": (None, None)}
+        return (_pd.DataFrame(), diags) if return_diagnostics else _pd.DataFrame()
+
+    # Winsorize tails if requested (column-wise)
+    if winsor_p and 0 < winsor_p < 0.5:
+        q_lo = rets.quantile(winsor_p)
+        q_hi = rets.quantile(1 - winsor_p)
+        for c in rets.columns:
+            lo = q_lo.get(c)
+            hi = q_hi.get(c)
+            if lo is not None and hi is not None and _np.isfinite(lo) and _np.isfinite(hi):
+                rets[c] = rets[c].clip(float(lo), float(hi))
+
+    # Final sanitization
+    rets = rets.replace([_np.inf, -_np.inf], _np.nan).dropna(how="any")
+
+    window = (rets.index.min(), rets.index.max()) if not rets.empty else (None, None)
+    diags = {"dropped_symbols": dropped, "kept_symbols": kept, "window": window}
+    return (rets, diags) if return_diagnostics else rets
 
 def estimate_mu_cov(rets: pd.DataFrame):
     if not _PYPFOPT_AVAILABLE:

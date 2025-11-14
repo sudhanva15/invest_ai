@@ -140,15 +140,23 @@ def apply_weight_constraints(
     # Step 3: Ensure minimum core allocation
     core_sum = sum(result.get(s, 0) for s in core_symbols)
     if core_sum < core_min:
-        # Scale up core positions proportionally
-        scale = core_min / core_sum if core_sum > 0 else 1.0
-        for s in core_symbols:
-            if s in result:
-                result[s] *= scale
-                
-        # Scale down non-core proportionally
+        if core_sum > 0:
+            # Scale up existing core positions proportionally
+            scale = core_min / core_sum
+            for s in core_symbols:
+                if s in result:
+                    result[s] *= scale
+        else:
+            # No core allocation present: seed an equal split across core to satisfy core_min
+            n_core = max(1, len(core_symbols))
+            eq_core = core_min / n_core
+            for s in core_symbols:
+                # Initialize missing core symbols to their equal share
+                result[s] = eq_core
+
+        # Scale down non-core (satellites) proportionally to fit remaining budget
         if satellite_symbols:
-            remain = 1.0 - core_min
+            remain = max(0.0, 1.0 - core_min)
             sat_sum = sum(result.get(s, 0) for s in satellite_symbols)
             if sat_sum > 0:
                 scale = remain / sat_sum

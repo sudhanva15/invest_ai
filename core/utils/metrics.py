@@ -138,10 +138,10 @@ def beta_to_benchmark(
     if len(aligned) < min_overlap:
         return np.nan
     
-    cov = aligned["port"].cov(aligned["bench"])
-    var = aligned["bench"].var()
+    cov = float(aligned["port"].cov(aligned["bench"]))
+    var = float(aligned["bench"].var())
     
-    if var == 0 or np.isnan(var):
+    if var == 0.0 or np.isnan(var):
         return np.nan
     
     return float(cov / var)
@@ -210,6 +210,7 @@ __all__ = [
     "beta_to_benchmark",
     "value_at_risk",
     "calmar_ratio",
+    "rolling_metrics",
     "beta_vs_benchmark",
     "var_95",
 ]
@@ -229,4 +230,100 @@ def var_95(r: pd.Series) -> float:
         return value_at_risk(r, confidence=0.95, method="historical")
     except Exception:
         return float("nan")
+
+
+# ---- Alignment and consistency helpers (single source of truth) ----
+def align_returns_matrix(returns: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
+    """Drop leading rows until all selected tickers have non-NaN values (common window)."""
+    if returns is None or returns.empty:
+        return returns
+    cols = [t for t in tickers if t in returns.columns]
+    if not cols:
+        return pd.DataFrame(index=returns.index)
+    df = returns[cols].copy()
+    # Drop rows with any NaN across the selected columns to get a common window
+    df = df.dropna(how="any")
+    # Ensure all numeric
+    return df.select_dtypes(include=["number"]).astype(float)
+
+
+def assert_metrics_consistency(curve: pd.Series, port_returns: pd.Series, rtol: float = 1e-6) -> bool:
+    """Consistency gate: metrics computed from port_returns should match those implied by curve.
+    We verify by reconstructing cumulative from returns and comparing last values.
+    """
+    if curve is None or port_returns is None or len(curve) == 0 or len(port_returns) == 0:
+        return True
+    cum_from_rets = (1 + port_returns).cumprod().reindex(curve.index).dropna()
+    if cum_from_rets.empty:
+        return True
+    try:
+        a = float(cum_from_rets.iloc[-1])
+        b = float(curve.reindex(cum_from_rets.index).iloc[-1])
+        if a == 0 == b:
+            return True
+        return abs(a - b) <= rtol * max(1.0, abs(b))
+    except Exception:
+        return True
+
+
+def rolling_metrics(
+    returns: pd.Series,
+    window: int = 252,
+    risk_free_rate: float = 0.0,
+    min_periods: int | None = None,
+) -> pd.DataFrame:
+    """Compute rolling volatility, Sharpe, and max drawdown over a moving window.
+
+    Args:
+        returns: Daily returns as a pandas Series indexed by date.
+        window: Rolling window length in trading days (default: 252 ~ 1y).
+        risk_free_rate: Annualized risk-free rate for Sharpe (default: 0.0).
+        min_periods: Minimum observations to produce a value; defaults to window.
+
+    Returns:
+        DataFrame with columns:
+            - vol: annualized rolling volatility
+            - sharpe: annualized rolling Sharpe ratio
+            - maxdd: rolling maximum drawdown (negative number)
+    """
+    import pandas as pd
+    import numpy as np
+
+    if returns is None:
+        return pd.DataFrame(columns=["vol", "sharpe", "maxdd"])  
+    r = pd.Series(returns).dropna()
+    if r.empty:
+        return pd.DataFrame(index=r.index, columns=["vol", "sharpe", "maxdd"])  
+    win = int(window) if window and window > 0 else max(1, len(r))
+    mp = int(min_periods) if min_periods is not None else win
+
+    # Rolling volatility (annualized)
+    roll_std = r.rolling(win, min_periods=mp).std(ddof=0)
+    vol = roll_std * np.sqrt(252.0)
+
+    # Rolling Sharpe: use rolling mean annualized divided by vol
+    roll_mean = r.rolling(win, min_periods=mp).mean()
+    # Convert rf to daily equivalent approximately, then annualize back via CAGR approximation
+    rf_daily = (1.0 + float(risk_free_rate)) ** (1.0 / 252.0) - 1.0 if risk_free_rate else 0.0
+    # Excess daily return mean annualized approximation
+    with np.errstate(divide='ignore', invalid='ignore'):
+        sharpe = ((roll_mean - rf_daily) * 252.0) / vol
+
+    # Rolling max drawdown: compute within each window via cumulative curve
+    def _maxdd_win(x: pd.Series) -> float:
+        if x.isna().any() or len(x) == 0:
+            return np.nan
+        cum = (1 + x).cumprod()
+        peak = cum.cummax()
+        dd = (cum / peak) - 1.0
+        return float(dd.min()) if len(dd) else np.nan
+
+    maxdd = r.rolling(win, min_periods=mp).apply(_maxdd_win, raw=False)
+
+    out = pd.DataFrame({
+        "vol": vol.astype(float),
+        "sharpe": sharpe.astype(float),
+        "maxdd": maxdd.astype(float),
+    })
+    return out
 

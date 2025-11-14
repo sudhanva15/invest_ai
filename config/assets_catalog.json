@@ -1,214 +1,162 @@
 {
   "assets": [
-    {
-      "name": "US Total Market ETF (VTI)",
-      "symbol": "VTI",
-      "class": "public_equity",
-      "min_tier": "retail",
-      "min_risk_pct": 20
-    },
-    {
-      "name": "US Aggregate Bond ETF (BND)",
-      "symbol": "BND",
-      "class": "bond",
-      "min_tier": "retail",
-      "min_risk_pct": 5
-    },
-    {
-      "name": "TIPS ETF (TIP)",
-      "symbol": "TIP",
-      "class": "bond_inflation",
-      "min_tier": "retail",
-      "min_risk_pct": 5
-    },
-    {
-      "name": "Gold ETF (GLD)",
-      "symbol": "GLD",
-      "class": "commodity",
-      "min_tier": "retail",
-      "min_risk_pct": 15
-    },
-    {
-      "name": "US REIT ETF (VNQ)",
-      "symbol": "VNQ",
-      "class": "reit",
-      "min_tier": "retail",
-      "min_risk_pct": 15
-    },
-    {
-      "name": "Nasdaq 100 ETF (QQQ)",
-      "symbol": "QQQ",
-      "class": "public_equity_growth",
-      "min_tier": "retail",
-      "min_risk_pct": 35
-    },
-    {
-      "name": "Private Credit Fund (example)",
-      "symbol": "",
-      "class": "private_credit",
-      "min_tier": "accredited",
-      "min_risk_pct": 25
-    },
-    {
-      "name": "Venture Capital Fund (example)",
-      "symbol": "",
-      "class": "private_equity",
-      "min_tier": "accredited",
-      "min_risk_pct": 50
-    },
-    {
-      "name": "Hedge Fund (example)",
-      "symbol": "",
-      "class": "hedge_fund",
-      "min_tier": "qualified_client",
-      "min_risk_pct": 40
-    },
-    {
-      "name": "Direct PE Co-Invest (example)",
-      "symbol": "",
-      "class": "private_equity_direct",
-      "min_tier": "qualified_purchaser",
-      "min_risk_pct": 55
-    },
-    {
-      "name": "Muni Bonds ETF (MUB)",
-      "symbol": "MUB",
-      "class": "tax_eff_muni",
-      "min_tier": "retail",
-      "min_risk_pct": 8
-    },
-    {
-      "name": "Short-Term T-Bills ETF (BIL)",
-      "symbol": "BIL",
-      "class": "tbills",
-      "min_tier": "retail",
-      "min_risk_pct": 1
-    },
-    {
-      "name": "S&P 500 ETF (SPY)",
-      "symbol": "SPY",
-      "class": "public_equity",
-      "min_tier": "retail",
-      "min_risk_pct": 25
-    },
-    {
-      "name": "Dow Jones ETF (DIA)",
-      "symbol": "DIA",
-      "class": "public_equity",
-      "min_tier": "retail",
-      "min_risk_pct": 20
-    },
-    {
-      "name": "Russell 2000 ETF (IWM)",
-      "symbol": "IWM",
-      "class": "public_equity",
-      "min_tier": "retail",
-      "min_risk_pct": 30
-    },
-    {
-      "name": "Developed Mkts ex-US ETF (EFA)",
-      "symbol": "EFA",
-      "class": "public_equity_intl",
-      "min_tier": "retail",
-      "min_risk_pct": 25
-    },
-    {
-      "name": "Emerging Mkts ETF (EEM)",
-      "symbol": "EEM",
-      "class": "public_equity_em",
-      "min_tier": "retail",
-      "min_risk_pct": 30
-    },
-    {
-      "name": "Long Treasuries ETF (TLT)",
-      "symbol": "TLT",
-      "class": "treasury_long",
-      "min_tier": "retail",
-      "min_risk_pct": 10
-    },
-    {
-      "name": "Short Treasuries ETF (SHY)",
-      "symbol": "SHY",
-      "class": "treasury_short",
-      "min_tier": "retail",
-      "min_risk_pct": 1
-    },
-    {
-      "name": "IG Corporate Bonds ETF (LQD)",
-      "symbol": "LQD",
-      "class": "corp_ig",
-      "min_tier": "retail",
-      "min_risk_pct": 8
-    },
-    {
-      "name": "High-Yield Bonds ETF (HYG)",
-      "symbol": "HYG",
-      "class": "corp_hy",
-      "min_tier": "retail",
-      "min_risk_pct": 15
-    },
-    {
-      "name": "Broad Commodities ETF (DBC)",
-      "symbol": "DBC",
-      "class": "commodity",
-      "min_tier": "retail",
-      "min_risk_pct": 20
-    },
-    {
-      "name": "Broad Commodities ETF (GSG)",
-      "symbol": "GSG",
-      "class": "commodity",
-      "min_tier": "retail",
-      "min_risk_pct": 20
-    },
-    {
-      "name": "Apple Inc.",
-      "symbol": "AAPL",
-      "class": "single_stock",
-      "min_tier": "retail",
-      "min_risk_pct": 35
-    },
-    {
-      "name": "Microsoft Corp.",
-      "symbol": "MSFT",
-      "class": "single_stock",
-      "min_tier": "retail",
-      "min_risk_pct": 35
-    },
-    {
-      "name": "Amazon.com Inc.",
-      "symbol": "AMZN",
-      "class": "single_stock",
-      "min_tier": "retail",
-      "min_risk_pct": 35
-    },
-    {
-      "name": "Alphabet (GOOGL)",
-      "symbol": "GOOGL",
-      "class": "single_stock",
-      "min_tier": "retail",
-      "min_risk_pct": 35
-    },
-    {
-      "name": "Meta Platforms",
-      "symbol": "META",
-      "class": "single_stock",
-      "min_tier": "retail",
-      "min_risk_pct": 35
-    },
-    {
-      "name": "Tesla, Inc.",
-      "symbol": "TSLA",
-      "class": "single_stock",
-      "min_tier": "retail",
-      "min_risk_pct": 40
-    }
+    {"symbol": "SPY", "name": "S&P 500 ETF", "class": "equity_us", "sector": null, "provider": "stooq", "min_date": "1993-01-29", "eligibility": "retail", "max_weight_default": 0.30, "risk_bucket": "core", "asset_class": "equity", "region": "US", "core_or_satellite": "core"},
+    {"symbol": "IVV", "name": "iShares Core S&P 500", "class": "equity_us", "sector": null, "provider": "stooq", "min_date": "2000-05-15", "eligibility": "retail", "max_weight_default": 0.30, "risk_bucket": "core", "asset_class": "equity", "region": "US", "core_or_satellite": "core"},
+    {"symbol": "VOO", "name": "Vanguard S&P 500", "class": "equity_us", "sector": null, "provider": "stooq", "min_date": "2010-09-09", "eligibility": "retail", "max_weight_default": 0.30, "risk_bucket": "core", "asset_class": "equity", "region": "US", "core_or_satellite": "core"},
+    {"symbol": "VTI", "name": "Total US Market", "class": "equity_us", "sector": null, "provider": "stooq", "min_date": "2001-05-31", "eligibility": "retail", "max_weight_default": 0.30, "risk_bucket": "core", "asset_class": "equity", "region": "US", "core_or_satellite": "core"},
+    {"symbol": "ITOT", "name": "iShares Total US Market", "class": "equity_us", "sector": null, "provider": "stooq", "min_date": "2004-01-20", "eligibility": "retail", "max_weight_default": 0.30, "risk_bucket": "core", "asset_class": "equity", "region": "US", "core_or_satellite": "core"},
+    {"symbol": "SCHB", "name": "Schwab US Broad Market", "class": "equity_us", "sector": null, "provider": "stooq", "min_date": "2009-11-03", "eligibility": "retail", "max_weight_default": 0.30, "risk_bucket": "core", "asset_class": "equity", "region": "US", "core_or_satellite": "core"},
+    {"symbol": "SPTM", "name": "SPDR Portfolio Total US Market", "class": "equity_us", "sector": null, "provider": "stooq", "min_date": "2000-10-04", "eligibility": "retail", "max_weight_default": 0.30, "risk_bucket": "core", "asset_class": "equity", "region": "US", "core_or_satellite": "core"},
+
+    {"symbol": "QQQ", "name": "Nasdaq 100", "class": "equity_us", "sector": "technology", "provider": "stooq", "min_date": "1999-03-10", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+    {"symbol": "QQQM", "name": "Invesco Nasdaq 100 (low fee)", "class": "equity_us", "sector": "technology", "provider": "stooq", "min_date": "2020-10-13", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+    {"symbol": "DIA", "name": "Dow Jones 30", "class": "equity_us", "sector": null, "provider": "stooq", "min_date": "1998-01-14", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+    {"symbol": "IWM", "name": "Russell 2000", "class": "equity_us", "sector": null, "provider": "stooq", "min_date": "2000-05-26", "eligibility": "retail", "max_weight_default": 0.15, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+    {"symbol": "IJR", "name": "iShares Core S&P Small-Cap", "class": "equity_us", "sector": null, "provider": "stooq", "min_date": "2000-05-22", "eligibility": "retail", "max_weight_default": 0.15, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+    {"symbol": "IJH", "name": "iShares Core S&P Mid-Cap", "class": "equity_us", "sector": null, "provider": "stooq", "min_date": "2000-05-26", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+    {"symbol": "IWB", "name": "iShares Russell 1000", "class": "equity_us", "sector": null, "provider": "stooq", "min_date": "2000-05-26", "eligibility": "retail", "max_weight_default": 0.30, "risk_bucket": "core", "asset_class": "equity", "region": "US", "core_or_satellite": "core"},
+
+    {"symbol": "VUG", "name": "Vanguard Growth", "class": "equity_us", "sector": null, "provider": "stooq", "min_date": "2004-01-26", "eligibility": "retail", "max_weight_default": 0.25, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+    {"symbol": "VTV", "name": "Vanguard Value", "class": "equity_us", "sector": null, "provider": "stooq", "min_date": "2004-01-26", "eligibility": "retail", "max_weight_default": 0.25, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+    {"symbol": "VBK", "name": "Vanguard Small-Cap Growth", "class": "equity_us", "sector": null, "provider": "stooq", "min_date": "2004-01-26", "eligibility": "retail", "max_weight_default": 0.15, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+    {"symbol": "VBR", "name": "Vanguard Small-Cap Value", "class": "equity_us", "sector": null, "provider": "stooq", "min_date": "2004-01-26", "eligibility": "retail", "max_weight_default": 0.15, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+    {"symbol": "AVUV", "name": "Avantis US Small Cap Value", "class": "equity_us", "sector": null, "provider": "stooq", "min_date": "2019-09-24", "eligibility": "retail", "max_weight_default": 0.15, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+    {"symbol": "MTUM", "name": "iShares MSCI USA Momentum", "class": "equity_us", "sector": null, "provider": "stooq", "min_date": "2013-04-16", "eligibility": "retail", "max_weight_default": 0.15, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+    {"symbol": "QUAL", "name": "iShares MSCI USA Quality", "class": "equity_us", "sector": null, "provider": "stooq", "min_date": "2013-07-16", "eligibility": "retail", "max_weight_default": 0.15, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+    {"symbol": "USMV", "name": "iShares Min Vol USA", "class": "equity_us", "sector": null, "provider": "stooq", "min_date": "2011-10-24", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+    {"symbol": "SPLV", "name": "Invesco S&P 500 Low Vol", "class": "equity_us", "sector": null, "provider": "stooq", "min_date": "2011-05-05", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+
+    {"symbol": "SCHD", "name": "Schwab US Dividend Equity", "class": "equity_us", "sector": null, "provider": "stooq", "min_date": "2011-10-20", "eligibility": "retail", "max_weight_default": 0.25, "risk_bucket": "core", "asset_class": "equity", "region": "US", "core_or_satellite": "core"},
+    {"symbol": "VIG", "name": "Vanguard Dividend Appreciation", "class": "equity_us", "sector": null, "provider": "stooq", "min_date": "2006-04-27", "eligibility": "retail", "max_weight_default": 0.25, "risk_bucket": "core", "asset_class": "equity", "region": "US", "core_or_satellite": "core"},
+    {"symbol": "VYM", "name": "Vanguard High Dividend Yield", "class": "equity_us", "sector": null, "provider": "stooq", "min_date": "2006-11-16", "eligibility": "retail", "max_weight_default": 0.25, "risk_bucket": "core", "asset_class": "equity", "region": "US", "core_or_satellite": "core"},
+    {"symbol": "DGRO", "name": "iShares Core Dividend Growth", "class": "equity_us", "sector": null, "provider": "stooq", "min_date": "2014-06-10", "eligibility": "retail", "max_weight_default": 0.25, "risk_bucket": "core", "asset_class": "equity", "region": "US", "core_or_satellite": "core"},
+
+    {"symbol": "XLF", "name": "Financials Select Sector", "class": "equity_sector", "sector": "financials", "provider": "stooq", "min_date": "1998-12-22", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+    {"symbol": "XLK", "name": "Technology Select Sector", "class": "equity_sector", "sector": "information_technology", "provider": "stooq", "min_date": "1998-12-22", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+    {"symbol": "XLY", "name": "Consumer Discretionary", "class": "equity_sector", "sector": "consumer_discretionary", "provider": "stooq", "min_date": "1998-12-22", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+    {"symbol": "XLP", "name": "Consumer Staples", "class": "equity_sector", "sector": "consumer_staples", "provider": "stooq", "min_date": "1998-12-22", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+    {"symbol": "XLV", "name": "Health Care", "class": "equity_sector", "sector": "health_care", "provider": "stooq", "min_date": "1998-12-22", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+    {"symbol": "XLI", "name": "Industrials", "class": "equity_sector", "sector": "industrials", "provider": "stooq", "min_date": "1998-12-22", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+    {"symbol": "XLU", "name": "Utilities", "class": "equity_sector", "sector": "utilities", "provider": "stooq", "min_date": "1998-12-22", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+    {"symbol": "XLE", "name": "Energy", "class": "equity_sector", "sector": "energy", "provider": "stooq", "min_date": "1998-12-22", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+    {"symbol": "XLRE", "name": "Real Estate", "class": "equity_sector", "sector": "real_estate", "provider": "stooq", "min_date": "2015-10-08", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+    {"symbol": "XLB", "name": "Materials", "class": "equity_sector", "sector": "materials", "provider": "stooq", "min_date": "1998-12-22", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+    {"symbol": "XLC", "name": "Communication Services", "class": "equity_sector", "sector": "communication_services", "provider": "stooq", "min_date": "2018-06-18", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+
+    {"symbol": "VEA", "name": "Developed ex-US", "class": "equity_intl", "sector": null, "provider": "stooq", "min_date": "2007-07-26", "eligibility": "retail", "max_weight_default": 0.25, "risk_bucket": "core", "asset_class": "equity", "region": "Intl Dev", "core_or_satellite": "core"},
+    {"symbol": "EFA", "name": "iShares MSCI EAFE", "class": "equity_intl", "sector": null, "provider": "stooq", "min_date": "2001-08-14", "eligibility": "retail", "max_weight_default": 0.25, "risk_bucket": "core", "asset_class": "equity", "region": "Intl Dev", "core_or_satellite": "core"},
+    {"symbol": "VXUS", "name": "Total Intl ex-US", "class": "equity_intl", "sector": null, "provider": "stooq", "min_date": "2011-01-28", "eligibility": "retail", "max_weight_default": 0.25, "risk_bucket": "core", "asset_class": "equity", "region": "Intl", "core_or_satellite": "core"},
+    {"symbol": "VEU", "name": "FTSE All-World ex-US", "class": "equity_intl", "sector": null, "provider": "stooq", "min_date": "2007-03-08", "eligibility": "retail", "max_weight_default": 0.25, "risk_bucket": "core", "asset_class": "equity", "region": "Intl", "core_or_satellite": "core"},
+    {"symbol": "VWO", "name": "Emerging Markets", "class": "equity_intl", "sector": null, "provider": "stooq", "min_date": "2005-03-04", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "EM", "core_or_satellite": "satellite"},
+    {"symbol": "EEM", "name": "iShares MSCI Emerging Mkts", "class": "equity_intl", "sector": null, "provider": "stooq", "min_date": "2003-04-11", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "EM", "core_or_satellite": "satellite"},
+    {"symbol": "EWJ", "name": "iShares Japan", "class": "equity_intl", "sector": null, "provider": "stooq", "min_date": "1996-03-12", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "Japan", "core_or_satellite": "satellite"},
+    {"symbol": "INDA", "name": "iShares India", "class": "equity_intl", "sector": null, "provider": "stooq", "min_date": "2012-02-02", "eligibility": "retail", "max_weight_default": 0.15, "risk_bucket": "satellite", "asset_class": "equity", "region": "India", "core_or_satellite": "satellite"},
+    {"symbol": "EWU", "name": "iShares UK", "class": "equity_intl", "sector": null, "provider": "stooq", "min_date": "1996-03-12", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "UK", "core_or_satellite": "satellite"},
+    {"symbol": "EWQ", "name": "iShares France", "class": "equity_intl", "sector": null, "provider": "stooq", "min_date": "1996-03-12", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "France", "core_or_satellite": "satellite"},
+    {"symbol": "EWC", "name": "iShares Canada", "class": "equity_intl", "sector": null, "provider": "stooq", "min_date": "1996-03-12", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "Canada", "core_or_satellite": "satellite"},
+    {"symbol": "EWA", "name": "iShares Australia", "class": "equity_intl", "sector": null, "provider": "stooq", "min_date": "1996-03-12", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "Australia", "core_or_satellite": "satellite"},
+    {"symbol": "EWG", "name": "iShares Germany", "class": "equity_intl", "sector": null, "provider": "stooq", "min_date": "1996-03-12", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "Germany", "core_or_satellite": "satellite"},
+    {"symbol": "EWH", "name": "iShares Hong Kong", "class": "equity_intl", "sector": null, "provider": "stooq", "min_date": "1996-03-12", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "HK", "core_or_satellite": "satellite"},
+    {"symbol": "EWY", "name": "iShares South Korea", "class": "equity_intl", "sector": null, "provider": "stooq", "min_date": "2000-05-15", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "Korea", "core_or_satellite": "satellite"},
+    {"symbol": "EWT", "name": "iShares Taiwan", "class": "equity_intl", "sector": null, "provider": "stooq", "min_date": "2000-06-19", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "Taiwan", "core_or_satellite": "satellite"},
+    {"symbol": "EWZ", "name": "iShares Brazil", "class": "equity_intl", "sector": null, "provider": "stooq", "min_date": "2000-07-14", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "Brazil", "core_or_satellite": "satellite"},
+
+    {"symbol": "BND", "name": "Vanguard Total Bond Market", "class": "bonds_ig", "sector": null, "provider": "stooq", "min_date": "2007-04-03", "eligibility": "retail", "max_weight_default": 0.50, "risk_bucket": "core", "asset_class": "bond", "region": "US", "core_or_satellite": "core"},
+    {"symbol": "AGG", "name": "iShares Core US Aggregate Bond", "class": "bonds_ig", "sector": null, "provider": "stooq", "min_date": "2003-09-22", "eligibility": "retail", "max_weight_default": 0.50, "risk_bucket": "core", "asset_class": "bond", "region": "US", "core_or_satellite": "core"},
+    {"symbol": "LQD", "name": "iShares iBoxx $ IG Corporate", "class": "bonds_ig", "sector": null, "provider": "stooq", "min_date": "2002-07-29", "eligibility": "retail", "max_weight_default": 0.40, "risk_bucket": "core", "asset_class": "bond", "region": "US", "core_or_satellite": "core"},
+    {"symbol": "HYG", "name": "iShares iBoxx $ High Yield", "class": "high_yield", "sector": null, "provider": "stooq", "min_date": "2007-04-04", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "bond", "region": "US", "core_or_satellite": "satellite"},
+    {"symbol": "MUB", "name": "iShares National Muni Bond", "class": "munis", "sector": null, "provider": "stooq", "min_date": "2007-09-11", "eligibility": "retail", "max_weight_default": 0.30, "risk_bucket": "core", "asset_class": "bond", "region": "US", "core_or_satellite": "core"},
+    {"symbol": "SHY", "name": "iShares 1-3 Year Treasury", "class": "bonds_tsy", "sector": null, "provider": "stooq", "min_date": "2002-07-22", "eligibility": "retail", "max_weight_default": 0.40, "risk_bucket": "core", "asset_class": "bond", "region": "US", "core_or_satellite": "core"},
+    {"symbol": "IEI", "name": "iShares 3-7 Year Treasury", "class": "bonds_tsy", "sector": null, "provider": "stooq", "min_date": "2007-01-05", "eligibility": "retail", "max_weight_default": 0.40, "risk_bucket": "core", "asset_class": "bond", "region": "US", "core_or_satellite": "core"},
+    {"symbol": "IEF", "name": "iShares 7-10 Year Treasury", "class": "bonds_tsy", "sector": null, "provider": "stooq", "min_date": "2002-07-22", "eligibility": "retail", "max_weight_default": 0.50, "risk_bucket": "core", "asset_class": "bond", "region": "US", "core_or_satellite": "core"},
+    {"symbol": "TLT", "name": "iShares 20+ Year Treasury", "class": "bonds_tsy", "sector": null, "provider": "stooq", "min_date": "2002-07-22", "eligibility": "retail", "max_weight_default": 0.60, "risk_bucket": "core", "asset_class": "bond", "region": "US", "core_or_satellite": "core"},
+    {"symbol": "BIL", "name": "SPDR 1-3 Month T-Bill", "class": "cash", "sector": null, "provider": "stooq", "min_date": "2007-05-30", "eligibility": "retail", "max_weight_default": 0.50, "risk_bucket": "core", "asset_class": "cash", "region": "US", "core_or_satellite": "core"},
+
+    {"symbol": "GLD", "name": "SPDR Gold Shares", "class": "commodities", "sector": null, "provider": "stooq", "min_date": "2004-11-18", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "commodity", "region": "Global", "core_or_satellite": "satellite"},
+    {"symbol": "IAU", "name": "iShares Gold Trust", "class": "commodities", "sector": null, "provider": "stooq", "min_date": "2005-01-28", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "commodity", "region": "Global", "core_or_satellite": "satellite"},
+    {"symbol": "DBC", "name": "Invesco DB Commodity Index", "class": "commodities", "sector": null, "provider": "stooq", "min_date": "2006-02-03", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "commodity", "region": "Global", "core_or_satellite": "satellite"},
+    {"symbol": "PDBC", "name": "Invesco Optimum Yield Diversified Commodities", "class": "commodities", "sector": null, "provider": "stooq", "min_date": "2014-11-07", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "commodity", "region": "Global", "core_or_satellite": "satellite"},
+    {"symbol": "GSG", "name": "iShares S&P GSCI Commodity-Indexed", "class": "commodities", "sector": null, "provider": "stooq", "min_date": "2006-07-21", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "commodity", "region": "Global", "core_or_satellite": "satellite"},
+
+    {"symbol": "VNQ", "name": "Vanguard Real Estate", "class": "reit", "sector": "real_estate", "provider": "stooq", "min_date": "2004-09-29", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "reit", "region": "US", "core_or_satellite": "satellite"},
+  {"symbol": "SCHH", "name": "Schwab US REIT", "class": "reit", "sector": "real_estate", "provider": "stooq", "min_date": "2011-01-13", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "reit", "region": "US", "core_or_satellite": "satellite"},
+
+  {"symbol": "RSP", "name": "Invesco S&P 500 Equal Weight", "class": "equity_us", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.25, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+  {"symbol": "SPLG", "name": "SPDR Portfolio S&P 500", "class": "equity_us", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.30, "risk_bucket": "core", "asset_class": "equity", "region": "US", "core_or_satellite": "core"},
+  {"symbol": "SCHX", "name": "Schwab U.S. Large-Cap", "class": "equity_us", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.30, "risk_bucket": "core", "asset_class": "equity", "region": "US", "core_or_satellite": "core"},
+  {"symbol": "SCHM", "name": "Schwab U.S. Mid-Cap", "class": "equity_us", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.25, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+  {"symbol": "SCHA", "name": "Schwab U.S. Small-Cap", "class": "equity_us", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+  {"symbol": "SPYG", "name": "SPDR S&P 500 Growth", "class": "equity_us", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.25, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+  {"symbol": "SPYV", "name": "SPDR S&P 500 Value", "class": "equity_us", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.25, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+  {"symbol": "IWF", "name": "iShares Russell 1000 Growth", "class": "equity_us", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.25, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+  {"symbol": "IWD", "name": "iShares Russell 1000 Value", "class": "equity_us", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.25, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+  {"symbol": "VLUE", "name": "iShares MSCI USA Value Factor", "class": "equity_us", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+  {"symbol": "SIZE", "name": "iShares MSCI USA Size Factor", "class": "equity_us", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "equity", "region": "US", "core_or_satellite": "satellite"},
+
+  {"symbol": "ACWI", "name": "iShares MSCI ACWI", "class": "equity_intl", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.30, "risk_bucket": "core", "asset_class": "equity", "region": "Global", "core_or_satellite": "core"},
+  {"symbol": "ACWX", "name": "iShares MSCI ACWI ex US", "class": "equity_intl", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.25, "risk_bucket": "core", "asset_class": "equity", "region": "Global ex-US", "core_or_satellite": "core"},
+  {"symbol": "IEFA", "name": "iShares Core MSCI EAFE", "class": "equity_intl", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.25, "risk_bucket": "core", "asset_class": "equity", "region": "Intl Dev", "core_or_satellite": "core"},
+  {"symbol": "IEMG", "name": "iShares Core MSCI EM", "class": "equity_intl", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.25, "risk_bucket": "core", "asset_class": "equity", "region": "EM", "core_or_satellite": "core"},
+  {"symbol": "VSS", "name": "Vanguard FTSE All-World ex-US Small-Cap", "class": "equity_intl", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.15, "risk_bucket": "satellite", "asset_class": "equity", "region": "Intl", "core_or_satellite": "satellite"},
+  {"symbol": "SCZ", "name": "iShares MSCI EAFE Small-Cap", "class": "equity_intl", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.15, "risk_bucket": "satellite", "asset_class": "equity", "region": "Intl Dev", "core_or_satellite": "satellite"},
+
+  {"symbol": "EWS", "name": "iShares MSCI Singapore", "class": "equity_intl", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.15, "risk_bucket": "satellite", "asset_class": "equity", "region": "Singapore", "core_or_satellite": "satellite"},
+  {"symbol": "EZA", "name": "iShares MSCI South Africa", "class": "equity_intl", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.15, "risk_bucket": "satellite", "asset_class": "equity", "region": "South Africa", "core_or_satellite": "satellite"},
+  {"symbol": "EWW", "name": "iShares MSCI Mexico", "class": "equity_intl", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.15, "risk_bucket": "satellite", "asset_class": "equity", "region": "Mexico", "core_or_satellite": "satellite"},
+  {"symbol": "EWM", "name": "iShares MSCI Malaysia", "class": "equity_intl", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.15, "risk_bucket": "satellite", "asset_class": "equity", "region": "Malaysia", "core_or_satellite": "satellite"},
+  {"symbol": "EWD", "name": "iShares MSCI Sweden", "class": "equity_intl", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.15, "risk_bucket": "satellite", "asset_class": "equity", "region": "Sweden", "core_or_satellite": "satellite"},
+  {"symbol": "EWL", "name": "iShares MSCI Switzerland", "class": "equity_intl", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.15, "risk_bucket": "satellite", "asset_class": "equity", "region": "Switzerland", "core_or_satellite": "satellite"},
+  {"symbol": "EWI", "name": "iShares MSCI Italy", "class": "equity_intl", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.15, "risk_bucket": "satellite", "asset_class": "equity", "region": "Italy", "core_or_satellite": "satellite"},
+  {"symbol": "EWP", "name": "iShares MSCI Spain", "class": "equity_intl", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.15, "risk_bucket": "satellite", "asset_class": "equity", "region": "Spain", "core_or_satellite": "satellite"},
+
+  {"symbol": "TIP", "name": "iShares TIPS Bond", "class": "bonds_ig", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.40, "risk_bucket": "core", "asset_class": "bond", "region": "US", "core_or_satellite": "core"},
+  {"symbol": "SCHP", "name": "Schwab U.S. TIPS", "class": "bonds_ig", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.40, "risk_bucket": "core", "asset_class": "bond", "region": "US", "core_or_satellite": "core"},
+  {"symbol": "BSV", "name": "Vanguard Short-Term Bond", "class": "bonds_ig", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.40, "risk_bucket": "core", "asset_class": "bond", "region": "US", "core_or_satellite": "core"},
+  {"symbol": "BIV", "name": "Vanguard Intermediate-Term Bond", "class": "bonds_ig", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.50, "risk_bucket": "core", "asset_class": "bond", "region": "US", "core_or_satellite": "core"},
+  {"symbol": "VGIT", "name": "Vanguard Intermediate-Term Treasury", "class": "bonds_tsy", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.50, "risk_bucket": "core", "asset_class": "bond", "region": "US", "core_or_satellite": "core"},
+  {"symbol": "VGLT", "name": "Vanguard Long-Term Treasury", "class": "bonds_tsy", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.60, "risk_bucket": "core", "asset_class": "bond", "region": "US", "core_or_satellite": "core"},
+  {"symbol": "VGSH", "name": "Vanguard Short-Term Treasury", "class": "bonds_tsy", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.50, "risk_bucket": "core", "asset_class": "bond", "region": "US", "core_or_satellite": "core"},
+  {"symbol": "EDV", "name": "Vanguard Extended Duration Treasury", "class": "bonds_tsy", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.60, "risk_bucket": "satellite", "asset_class": "bond", "region": "US", "core_or_satellite": "satellite"},
+  {"symbol": "ZROZ", "name": "PIMCO 25+ Year Zero Coupon U.S. Treasury", "class": "bonds_tsy", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.60, "risk_bucket": "satellite", "asset_class": "bond", "region": "US", "core_or_satellite": "satellite"},
+  {"symbol": "GOVT", "name": "iShares U.S. Treasury Bond", "class": "bonds_tsy", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.50, "risk_bucket": "core", "asset_class": "bond", "region": "US", "core_or_satellite": "core"},
+  {"symbol": "IGSB", "name": "iShares 1-5 Year Investment Grade Corporate Bond", "class": "bonds_ig", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.40, "risk_bucket": "core", "asset_class": "bond", "region": "US", "core_or_satellite": "core"},
+  {"symbol": "IGIB", "name": "iShares Intermediate-Term Corporate Bond", "class": "bonds_ig", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.40, "risk_bucket": "core", "asset_class": "bond", "region": "US", "core_or_satellite": "core"},
+  {"symbol": "JNK", "name": "SPDR Bloomberg High Yield Bond", "class": "high_yield", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "bond", "region": "US", "core_or_satellite": "satellite"},
+  {"symbol": "BNDX", "name": "Vanguard Total International Bond", "class": "bonds_ig", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.30, "risk_bucket": "core", "asset_class": "bond", "region": "Intl", "core_or_satellite": "core"},
+  {"symbol": "EMB", "name": "iShares J.P. Morgan USD Emerging Markets Bond", "class": "bonds_ig", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.25, "risk_bucket": "satellite", "asset_class": "bond", "region": "EM", "core_or_satellite": "satellite"},
+
+  {"symbol": "GLDM", "name": "SPDR Gold MiniShares", "class": "commodities", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "commodity", "region": "Global", "core_or_satellite": "satellite"},
+  {"symbol": "GCC", "name": "WisdomTree Enhanced Commodity Strategy", "class": "commodities", "sector": null, "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "commodity", "region": "Global", "core_or_satellite": "satellite"},
+
+  {"symbol": "IYR", "name": "iShares U.S. Real Estate", "class": "reit", "sector": "real_estate", "provider": "stooq", "eligibility": "retail", "max_weight_default": 0.20, "risk_bucket": "satellite", "asset_class": "reit", "region": "US", "core_or_satellite": "satellite"}
   ],
-  "tier_order": [
-    "retail",
-    "accredited",
-    "qualified_client",
-    "qualified_purchaser",
-    "institutional"
-  ]
+  "caps": {
+    "asset_class": {
+      "equity_us": 0.80,
+      "equity_intl": 0.40,
+      "bonds_tsy": 0.80,
+      "bonds_ig": 0.80,
+      "munis": 0.50,
+      "commodities": 0.20,
+      "cash": 0.50,
+      "reit": 0.20,
+      "equity_sector": 0.40,
+      "single_stock": 0.35
+    },
+    "sector": {
+      "information_technology": 0.35,
+      "consumer_discretionary": 0.25,
+      "financials": 0.30,
+      "health_care": 0.30,
+      "industrials": 0.30,
+      "utilities": 0.20,
+      "energy": 0.25,
+      "real_estate": 0.25,
+      "materials": 0.25,
+      "communication_services": 0.30
+    }
+  },
+  "constraints": {"satellite_max": 0.35, "single_max": 0.07},
+  "tier_order": ["retail", "accredited"],
+  "notes": "Expanded ETF universe: US core, factors, sectors, international, fixed income, real assets. Stooq primary, Tiingo backfill."
 }

@@ -1,7 +1,7 @@
 from __future__ import annotations
 import pandas as pd
 from dataclasses import dataclass, field
-from typing import Callable, Optional, Union, List
+from typing import Callable, Optional, Union, List, Dict, TypedDict
  # Robust config import (prefer env_tools; fallback to core path)
 try:
     from .utils.env_tools import load_config  # preferred
@@ -11,6 +11,15 @@ from .portfolio_engine import optimize_weights, portfolio_returns
 from .backtesting import summarize_backtest, equity_curve
 
 CFG = load_config()
+class PortfolioCandidate(TypedDict):
+    name: str
+    weights: Dict[str, float]
+    metrics: Dict[str, float]  # keys like 'CAGR' (mu), 'Vol' (sigma), 'Sharpe', 'MaxDD'
+    notes: str
+    optimizer: str
+    sat_cap: float
+    shortlist: bool
+
 
 @dataclass
 class UserProfile:
@@ -77,9 +86,28 @@ def recommend_legacy(rets: pd.DataFrame, profile: UserProfile):
 
 
 def _class_of_symbol(symbol: str, catalog: dict) -> str:
-    for a in catalog["assets"]:
-        if a["symbol"].upper() == symbol.upper():
-            return a.get("class", "unknown")
+    try:
+        for a in catalog.get("assets", []):
+            if str(a.get("symbol", "")).upper() == str(symbol).upper():
+                return str(a.get("class", "unknown"))
+    except Exception:
+        pass
+    # Heuristic fallbacks for common tickers
+    s = str(symbol).upper()
+    if s in {"DBC", "GSG"}:
+        return "commodities"
+    if s in {"GLD", "IAU"}:
+        return "commodities"
+    if s in {"SPY", "VTI", "QQQ", "DIA", "IWM", "VEA", "VXUS", "VWO", "EFA"}:
+        return "equity_us"
+    if s in {"TLT", "IEF"}:
+        return "bonds_tsy"
+    if s in {"BND", "LQD"}:
+        return "bonds_ig"
+    if s in {"MUB"}:
+        return "munis"
+    if s in {"BIL", "SHY"}:
+        return "cash"
     return "unknown"
 
 def _bounds_by_objective(objective: str):
@@ -536,7 +564,8 @@ def generate_candidates(
     catalog: Optional[dict] = None,
     n_candidates: int = 8,
     profile: Optional[UserProfile] = None,
-    seed: Optional[int] = None
+    seed: Optional[int] = None,
+    tilt: bool = True
 ) -> List[dict]:
     """
     Generate multiple portfolio candidates for a given objective.
@@ -579,7 +608,75 @@ def generate_candidates(
     if seed is not None:
         np.random.seed(seed)
     
-    catalog = catalog or {"assets": []}
+    # Short-circuit on empty/invalid returns
+    try:
+        if returns is None or not isinstance(returns, pd.DataFrame) or returns.empty:
+            return []
+    except Exception:
+        return []
+
+    # Ensure we have a full catalog dict (with assets and caps)
+    import json as _json
+    from pathlib import Path as _Path
+    if not catalog or not isinstance(catalog, dict) or "assets" not in catalog:
+        try:
+            catalog = _json.loads((_Path("config")/"assets_catalog.json").read_text())
+        except Exception:
+            catalog = {"assets": []}
+
+    # Clean non-finite rows and keep only dates where all current symbols have data (prevents high NaN ratios in validators)
+    returns = returns.replace([np.inf, -np.inf], np.nan).dropna(how="any")
+
+    # Build curated universe from catalog (core first, satellites next)
+    try:
+        from core.universe import load_assets_catalog, build_universe
+        cat_df = load_assets_catalog()
+        allow_single = True
+        universe_symbols = build_universe(
+            objective=objective_cfg.name.lower() if hasattr(objective_cfg, "name") else "balanced",
+            risk_profile=getattr(profile, "risk_level", None) if profile else None,
+            allow_single_names=allow_single,
+            sectors_caps=None,
+            catalog=cat_df,
+        )
+        # Intersect with available columns
+        universe_symbols = [s for s in universe_symbols if s in returns.columns]
+        # Keep ordering stable
+        if universe_symbols:
+            returns = returns[universe_symbols]
+    except Exception:
+        # Fallback to all columns
+        pass
+
+    # Default behavior: restrict to validated (data-driven) universe when a snapshot exists.
+    # RUNTIME PATH: Use load_valid_universe() instead of re-querying providers
+    try:
+        from core.universe_validate import load_valid_universe
+        valid_syms, records, metrics = load_valid_universe()
+        
+        # Log universe info for visibility
+        tiingo_count = sum(1 for r in records.values() if r.provider == "tiingo")
+        stooq_count = sum(1 for r in records.values() if r.provider == "stooq")
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Universe loaded from snapshot: {len(valid_syms)} symbols (Tiingo={tiingo_count}, Stooq={stooq_count})")
+        
+        if valid_syms:
+            keep_syms = [c for c in returns.columns if c.upper() in set(valid_syms)]
+            if keep_syms:
+                returns = returns[keep_syms]
+    except FileNotFoundError:
+        # Snapshot doesn't exist - this is OK for first-time setup
+        # DO NOT trigger build_validated_universe() from runtime path
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning("Universe snapshot not found. Run build_validated_universe() maintenance function to create it.")
+    except Exception as e:
+        # Other errors (corrupted snapshot, etc.) - log but continue
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Failed to load universe snapshot: {e}")
+        pass
     
     # Ensure bounds is always a valid dict
     if not hasattr(objective_cfg, "bounds") or objective_cfg.bounds is None:
@@ -591,6 +688,16 @@ def generate_candidates(
 
     # Apply universe filter if provided
     all_symbols = list(returns.columns)
+    # If a small explicit catalog is provided, prefer to restrict to it (helps unit tests and determinism)
+    skip_augment = False
+    try:
+        if isinstance(catalog, dict) and catalog.get("assets"):
+            provided_syms = [str(a.get("symbol", "")).upper() for a in catalog.get("assets", [])]
+            provided_syms = [s for s in provided_syms if s in all_symbols]
+        else:
+            provided_syms = []
+    except Exception:
+        provided_syms = []
     if objective_cfg.universe_filter:
         if callable(objective_cfg.universe_filter):
             filtered_symbols = objective_cfg.universe_filter(all_symbols, catalog)
@@ -599,11 +706,76 @@ def generate_candidates(
     else:
         filtered_symbols = all_symbols
 
-    # Subset returns to filtered universe, drop columns with all NaN or zero std
-    rets = returns[filtered_symbols].dropna(how="all")
-    rets = rets.loc[:, rets.std() > 0]
-    rets = rets.loc[:, ~rets.isnull().all()]
-    rets = rets.loc[:, rets.apply(lambda x: not x.isnull().all() and np.isfinite(x).all(), axis=0)]
+    # If provided_syms is non-empty and small, constrain to it and skip augmentation
+    if provided_syms:
+        filtered_symbols = [s for s in filtered_symbols if s in provided_syms]
+        skip_augment = True
+
+    # If the filtered universe is too small, try to augment from catalog/fallback by fetching additional prices
+    try:
+        min_cols = max(8, n_candidates)  # aim for at least 8 symbols for diversity
+        have_now = list(dict.fromkeys(filtered_symbols))  # stable order
+        if not skip_augment and len(have_now) < min_cols:
+            try:
+                from core.universe import load_assets_catalog, build_universe, FALLBACK_CORE
+            except Exception:
+                from core.universe import load_assets_catalog, build_universe
+                FALLBACK_CORE = ["SPY","VTI","QQQ","DIA","IWM","VEA","VXUS","VWO","TLT","IEF","AGG","BND","MUB","BIL","GLD","DBC"]
+            cat_df2 = load_assets_catalog()
+            # Build a broad universe and prefer not-yet-present symbols
+            broad = build_universe(
+                objective=objective_cfg.name.lower() if hasattr(objective_cfg, "name") else "balanced",
+                risk_profile=getattr(profile, "risk_level", None) if profile else None,
+                allow_single_names=True,
+                sectors_caps=None,
+                catalog=cat_df2,
+            )
+            desired = []
+            # keep existing first
+            desired.extend(have_now)
+            # then add from broad, then fallback core
+            for s in broad:
+                if s not in desired:
+                    desired.append(s)
+            for s in FALLBACK_CORE:
+                if s not in desired:
+                    desired.append(s)
+            # Trim to a target size (e.g., 16) to keep compute bounded
+            desired = desired[:16]
+
+            # Fetch any missing symbols and merge their returns
+            missing = [s for s in desired if s not in returns.columns]
+            if missing:
+                try:
+                    from core.data_ingestion import get_prices
+                    start_dt = None
+                    if not returns.empty and hasattr(returns.index, "min"):
+                        try:
+                            start_dt = returns.index.min().strftime("%Y-%m-%d")
+                        except Exception:
+                            start_dt = None
+                    px_extra = get_prices(missing, start=start_dt)
+                    if px_extra is not None and not px_extra.empty:
+                        rets_extra = px_extra.pct_change(fill_method=None).replace([np.inf, -np.inf], np.nan)
+                        # Align to existing index to avoid inflating NaN ratios on existing symbols
+                        if not returns.empty:
+                            rets_extra = rets_extra.reindex(index=returns.index)
+                            returns = returns.join(rets_extra, how="left")
+                        else:
+                            returns = rets_extra
+                        # Update symbol list post-merge
+                        all_symbols = list(returns.columns)
+                        filtered_symbols = [s for s in desired if s in all_symbols]
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # Subset returns to filtered universe; drop completely empty columns and those with zero variance.
+    rets = returns[filtered_symbols].copy()
+    rets = rets.loc[:, rets.notnull().sum() > 0]
+    rets = rets.loc[:, rets.std(skipna=True) > 0]
+    # Do NOT force all rows finite; allow partial histories (later lookbacks handle alignment).
     if rets.empty or len(rets.columns) == 0:
         print("[diagnostic] No valid returns after filtering for candidate generation.")
         return []
@@ -611,21 +783,43 @@ def generate_candidates(
     symbols = list(rets.columns)
     
     # Define variant space
-    optimizers = ["hrp", "max_sharpe", "min_var", "risk_parity", "equal_weight"]
+    optimizers = ["hrp", "max_sharpe", "min_var", "risk_parity", "max_diversification", "equal_weight"]
     sat_caps = [0.20, 0.25, 0.30, 0.35]
+
+    # Add slight, deterministic jitter to diversify optimizer inputs
+    rets = rets.copy()
+    rng = np.random.default_rng(seed)
+    jitter = rng.normal(loc=0.0, scale=1e-5, size=rets.shape)
+    rets = rets + pd.DataFrame(jitter, index=rets.index, columns=rets.columns)
     
-    candidates = []
+    candidates: List[PortfolioCandidate] = []
     
-    # Generate candidates by varying optimizer and satellite cap
-    for opt_method in optimizers:
-        for sat_cap in sat_caps:
+    # Generate candidates prioritizing optimizer variety first (reverse loop order)
+    for sat_cap in sat_caps:
+        for opt_method in optimizers:
             if len(candidates) >= n_candidates:
-                break
+                break  # stop adding once target count reached
             variant_name = f"{opt_method.upper()} - Sat {int(sat_cap*100)}%"
             try:
+                # Random subset and lookback variants to diversify weight vectors (deterministic via seed)
+                rets_work = rets
+                symbols_work = symbols
+                try:
+                    if len(symbols) >= 8 and opt_method != "equal_weight":
+                        p = float(rng.choice([0.6, 0.7, 0.8, 0.9]))
+                        k = max(5, int(len(symbols) * p))
+                        symbols_work = sorted(rng.choice(symbols, size=k, replace=False).tolist())
+                        # Vary lookback horizon as well
+                        lb_choices = [min(x, len(rets)) for x in [252, 504, 756, 1008] if x <= max(60, len(rets))]
+                        lb = int(rng.choice(lb_choices)) if lb_choices else len(rets)
+                        rets_work = rets[symbols_work].tail(lb)
+                except Exception:
+                    symbols_work = symbols
+                    rets_work = rets
+
                 w = _optimize_with_method(
-                    rets=rets,
-                    symbols=symbols,
+                    rets=rets_work,
+                    symbols=symbols_work,
                     method=opt_method,
                     catalog=catalog,
                     objective_cfg=objective_cfg
@@ -633,9 +827,24 @@ def generate_candidates(
                 if not w or sum(w.values()) == 0:
                     print(f"[diagnostic] Skipping candidate: {variant_name} (empty weights)")
                     continue
+                # Optional macro tilt (small, post-optimizer)
+                try:
+                    from core.regime import regime_tilt
+                    sym2cls = {str(a.get("symbol", "")).upper(): a.get("class", "") for a in catalog.get("assets", [])}
+                    if tilt:
+                        w_tilt = {}
+                        for s, wt in w.items():
+                            cls = sym2cls.get(str(s).upper(), "")
+                            delta = regime_tilt(cls)
+                            w_tilt[s] = max(0.0, wt * (1.0 + delta))
+                        tot = sum(w_tilt.values())
+                        if tot > 0:
+                            w = {k: v / tot for k, v in w_tilt.items()}
+                except Exception:
+                    pass
                 w = _apply_objective_constraints(
                     w,
-                    symbols=symbols,
+                    symbols=symbols_work,
                     catalog=catalog,
                     core_min=objective_cfg.bounds.get("core_min", 0.65),
                     sat_max_total=sat_cap,
@@ -644,6 +853,7 @@ def generate_candidates(
                 if not w or sum(w.values()) == 0:
                     print(f"[diagnostic] Skipping candidate: {variant_name} (zero after constraints)")
                     continue
+                # Map weights back to full symbol set (zeros for out-of-subset)
                 weights_vec = pd.Series(w).reindex(rets.columns).fillna(0.0)
                 port_ret = (rets * weights_vec).sum(axis=1)
                 if port_ret.isnull().all() or port_ret.std() == 0:
@@ -653,14 +863,39 @@ def generate_candidates(
                 print(f"[diagnostic] Candidate: {variant_name} | optimizer={opt_method} | sat_cap={sat_cap} | bounds={objective_cfg.bounds}")
                 candidates.append({
                     "name": variant_name,
-                    "weights": w,
+                    "weights": {k: float(v) for k, v in weights_vec.items() if float(v) > 0},
                     "metrics": metrics,
                     "notes": f"{objective_cfg.notes} | Optimizer: {opt_method}, Sat cap: {sat_cap:.0%}",
                     "optimizer": opt_method,
                     "sat_cap": sat_cap,
                 })
             except Exception as e:
-                print(f"[diagnostic] Exception in candidate {variant_name}: {e}")
+                print(f"[candidate_warning] {opt_method} failed: {e}")
+                try:
+                    n = len(symbols)
+                    w = {symbols[i]: 1.0/n for i in range(n)}
+                    w = _apply_objective_constraints(
+                        w,
+                        symbols=symbols,
+                        catalog=catalog,
+                        core_min=objective_cfg.bounds.get("core_min", 0.65),
+                        sat_max_total=sat_cap,
+                        sat_max_single=objective_cfg.bounds.get("sat_max_single", 0.07)
+                    )
+                    weights_vec = pd.Series(w).reindex(rets.columns).fillna(0.0)
+                    port_ret = (rets * weights_vec).sum(axis=1)
+                    if not port_ret.isnull().all() and port_ret.std() > 0:
+                        metrics = annualized_metrics(port_ret)
+                        candidates.append({
+                            "name": variant_name + " (fallback)",
+                            "weights": w,
+                            "metrics": metrics,
+                            "notes": f"Fallback equal-weight | Sat cap: {sat_cap:.0%}",
+                            "optimizer": "equal_weight",
+                            "sat_cap": sat_cap,
+                        })
+                except Exception:
+                    pass
                 continue
         if len(candidates) >= n_candidates:
             break
@@ -740,14 +975,158 @@ def generate_candidates(
             maxdd = cand["metrics"].get("MaxDD", 0.0)
             cand["score"] = sharpe - 0.2 * abs(maxdd)
     
-    # Sort by enhanced score (descending) and mark top as shortlist
-    candidates = sorted(candidates, key=lambda x: x.get("score", -999), reverse=True)
+    # Distinctness guard: drop near-duplicates by cosine similarity
+    def _cos_sim(a: pd.Series, b: pd.Series) -> float:
+        import numpy as _np
+        aa = a.values; bb = b.values
+        num = float((_np.dot(aa, bb)))
+        den = float((_np.linalg.norm(aa) * _np.linalg.norm(bb)) or 0.0)
+        return num / den if den else 0.0
+    deduped = []
+    keep = []
+    for c in sorted(candidates, key=lambda x: x.get("score", -999), reverse=True):
+        w = pd.Series(c["weights"]).reindex(returns.columns).fillna(0.0)
+        if not deduped:
+            deduped.append(w); keep.append(c); continue
+        sims = [ _cos_sim(w, ww) for ww in deduped ]
+        if max(sims) < 0.995:  # keep if not nearly identical
+            deduped.append(w); keep.append(c)
+    # If too few remain, relax by accepting best up to n_candidates
+    if len(keep) < min(5, n_candidates):
+        # Auto-relax satellite caps by +5pp and retry with additional optimizers and varied lookbacks
+        more_opts = ["risk_parity", "max_diversification", "equal_weight"]
+        bumped = [min(0.40, c+0.05) for c in [0.20,0.25,0.30,0.35]]
+        lookbacks = [252, 504, 756]
+        for opt_method in more_opts:
+            for sat_cap in bumped:
+                for lb in lookbacks:
+                    try:
+                        rets_lb = rets.tail(lb) if len(rets) > lb else rets
+                        w = _optimize_with_method(rets_lb, symbols, opt_method, catalog, objective_cfg)
+                        w = _apply_objective_constraints(
+                            w,
+                            symbols=symbols,
+                            catalog=catalog,
+                            core_min=objective_cfg.bounds.get("core_min", 0.65),
+                            sat_max_total=sat_cap,
+                            sat_max_single=objective_cfg.bounds.get("sat_max_single", 0.07)
+                        )
+                        weights_vec = pd.Series(w).reindex(rets_lb.columns).fillna(0.0)
+                        port_ret = (rets_lb * weights_vec).sum(axis=1)
+                        if port_ret.isnull().all() or port_ret.std() == 0:
+                            continue
+                        metrics = annualized_metrics(port_ret)
+                        c = {"name": f"{opt_method.upper()} - Sat {int(sat_cap*100)}% (relax,{lb}d)",
+                             "weights": w, "metrics": metrics, "notes": "Auto-relax", "optimizer": opt_method, "sat_cap": sat_cap}
+                        # distinctness check
+                        wser = pd.Series(c["weights"]).reindex(returns.columns).fillna(0.0)
+                        if not deduped:
+                            deduped.append(wser); keep.append(c)
+                        else:
+                            sims = [_cos_sim(wser, ww) for ww in deduped]
+                            if max(sims) < 0.995:
+                                deduped.append(wser); keep.append(c)
+                        if len(keep) >= max(5, n_candidates):
+                            break
+                    except Exception as _e:
+                        print(f"[candidate_warning] relax {opt_method} failed: {_e}")
+                if len(keep) >= max(5, n_candidates):
+                    break
+            if len(keep) >= max(5, n_candidates):
+                break
+        # If still too few, accept best originals but jitter slightly to ensure uniqueness for UI
+        if len(keep) < min(5, n_candidates) and candidates:
+            base = sorted(candidates, key=lambda x: x.get("score", -999), reverse=True)[:n_candidates]
+            eps = 5e-3  # slightly larger jitter to reduce cosine similarity while keeping portfolios plausible
+            for i, c in enumerate(base):
+                w = pd.Series(c["weights"]).reindex(returns.columns).fillna(0.0)
+                w = (w + eps * rng.normal(size=len(w)))
+                w = w.clip(lower=0)
+                if w.sum() > 0:
+                    w = w / w.sum()
+                c = dict(c)
+                c["weights"] = {k: float(v) for k, v in w.items()}
+                keep.append(c)
+                if len(keep) >= min(5, n_candidates):
+                    break
+    candidates = keep
     
     # Tag the best one
     if candidates:
         candidates[0]["shortlist"] = True
     
     return candidates[:n_candidates]
+
+
+# ========= Risk-score driven selection helpers =========
+
+def select_candidates_for_risk_score(
+    candidates: List[PortfolioCandidate],
+    risk_score: float,
+    # Calibrated from observed candidate distribution (25 samples across balanced/growth/income)
+    # See dev/debug_sigma_distribution.py for analysis:
+    #   5th percentile: 0.1271 (12.71%) - conservative lower bound
+    #   95th percentile: 0.2202 (22.02%) - captures most candidates
+    #   Median: 0.1647 (16.47%), Mean: 0.1656 (16.56%)
+    # These values are based on real candidate volatility from current universe (Nov 2025).
+    sigma_min: float = 0.1271,
+    sigma_max: float = 0.2202,
+    band: float = 0.02,
+) -> List[PortfolioCandidate]:
+    """
+    Filter candidates to a volatility band centered on target_sigma mapped from risk_score.
+
+    target_sigma = sigma_min + (sigma_max - sigma_min) * (risk_score / 100)
+    sigma_low = target_sigma - band
+    sigma_high = target_sigma + band
+
+    If fewer than 3 remain, relax the band (x1.5) once.
+    Return candidates sorted by mu (CAGR) ascending.
+    """
+    if not candidates:
+        return []
+
+    rs = max(0.0, min(100.0, float(risk_score)))
+    target_sigma = float(sigma_min) + (float(sigma_max) - float(sigma_min)) * (rs / 100.0)
+    low = target_sigma - float(band)
+    high = target_sigma + float(band)
+
+    def _sig(c: PortfolioCandidate) -> float:
+        # Handle both 'Vol' and 'Volatility' keys for compatibility
+        return float(c.get("metrics", {}).get("Vol") or c.get("metrics", {}).get("Volatility", 0.0))
+
+    def _mu(c: PortfolioCandidate) -> float:
+        return float(c.get("metrics", {}).get("CAGR", 0.0))
+
+    filtered = [c for c in candidates if low <= _sig(c) <= high]
+    if len(filtered) < 3:
+        widen = float(band) * 1.5
+        filtered = [c for c in candidates if (target_sigma - widen) <= _sig(c) <= (target_sigma + widen)]
+
+    return sorted(filtered, key=_mu)
+
+
+def pick_portfolio_from_slider(
+    candidates: List[PortfolioCandidate],
+    slider_value: float,
+) -> Optional[PortfolioCandidate]:
+    """
+    candidates must be sorted by mu ascending.
+    slider_value: 0.0 → lowest mu, 1.0 → highest mu
+    Returns the candidate whose mu is nearest to the interpolated slider mu.
+    """
+    if not candidates:
+        return None
+    sv = max(0.0, min(1.0, float(slider_value)))
+    mus = [float(c.get("metrics", {}).get("CAGR", 0.0)) for c in candidates]
+    if not mus:
+        return candidates[0]
+    min_mu = mus[0]
+    max_mu = mus[-1]
+    target_mu = min_mu + sv * (max_mu - min_mu)
+    # choose nearest
+    idx = min(range(len(candidates)), key=lambda i: abs(mus[i] - target_mu))
+    return candidates[idx]
 
 
 def _is_equity_ticker(ticker: str) -> bool:
@@ -795,12 +1174,13 @@ def _optimize_with_method(
         return {s: 1.0/n for s in symbols}
     
     # Compute expected returns and covariance
-    mu = expected_returns.mean_historical_return(rets, frequency=252)
+    # Treat 'rets' as returns data (not prices)
+    mu = expected_returns.mean_historical_return(rets, frequency=252, returns_data=True)
     try:
         from pypfopt.risk_models import CovarianceShrinkage
-        S = CovarianceShrinkage(rets).ledoit_wolf()
+        S = CovarianceShrinkage(rets, returns_data=True).ledoit_wolf()
     except Exception:
-        S = risk_models.sample_cov(rets, frequency=252)
+        S = risk_models.sample_cov(rets, frequency=252, returns_data=True)
     
     if method == "hrp":
         try:
@@ -812,7 +1192,7 @@ def _optimize_with_method(
             n = len(symbols)
             return {s: 1.0/n for s in symbols}
     
-    elif method in ["max_sharpe", "min_var", "risk_parity"]:
+    elif method in ["max_sharpe", "min_var", "risk_parity", "max_diversification"]:
         try:
             ef = EfficientFrontier(mu, S, weight_bounds=(0, 1))
             
@@ -824,6 +1204,14 @@ def _optimize_with_method(
                 # Approximate risk parity via efficient risk
                 target_vol = 0.12  # Moderate volatility target
                 ef.efficient_risk(target_volatility=target_vol)
+            elif method == "max_diversification":
+                # Use lightweight heuristic
+                try:
+                    from core.optimizers.light import max_diversification
+                    w_ser = max_diversification(pd.DataFrame(S, index=symbols, columns=symbols))
+                    return {k: float(v) for k, v in w_ser.items() if v > 0}
+                except Exception:
+                    ef.min_volatility()
             
             w = ef.clean_weights()
             return {k: float(v) for k, v in w.items() if v > 0}
@@ -861,14 +1249,18 @@ def _apply_objective_constraints(
     """
     try:
         from core.portfolio.constraints import apply_weight_constraints
+        import os as _os
         
-        # Classify symbols
-        core_classes = {"public_equity", "public_equity_intl", "public_equity_em", 
-                       "treasury_long", "corporate_bond", "high_yield", "tax_eff_muni", "tbills"}
-        sat_classes = {"commodities", "gold", "reit", "public_equity_sector", "public_equity_style"}
-        
-        CORE = [s for s in symbols if _class_of_symbol(s, catalog) in core_classes]
-        SATS = [s for s in symbols if _class_of_symbol(s, catalog) in sat_classes]
+        # Classify symbols using robust helpers (catalog-agnostic)
+        CORE, SATS = [], []
+        for s in symbols:
+            cls = _class_of_symbol(s, catalog)
+            if _is_equity(cls) or _is_bond(cls) or _is_cash(s, cls):
+                CORE.append(s)
+            elif _is_alt(cls, s):
+                SATS.append(s)
+        if not CORE:
+            CORE = list(symbols)
         
         w = apply_weight_constraints(
             weights,
@@ -878,17 +1270,273 @@ def _apply_objective_constraints(
             satellite_max=sat_max_total,
             single_max=sat_max_single,
         )
+        if _os.getenv("INVESTAI_DEBUG_CONSTRAINTS") == "1":
+            core_total_dbg = sum(float(w.get(s, 0.0)) for s in CORE)
+            sat_total_dbg = sum(float(w.get(s, 0.0)) for s in SATS)
+            print(f"[constraints_dbg] core_total={core_total_dbg:.3f} sat_total={sat_total_dbg:.3f} core_min={core_min:.2f} sat_max={sat_max_total:.2f} CORE={CORE} SATS={SATS}")
         
-        # Renormalize
+        # Enforce per-class caps from catalog if available (e.g., commodities <= 20%)
+        class_caps = {}
+        try:
+            # When catalog is dict with caps
+            if isinstance(catalog, dict) and isinstance(catalog.get("caps"), dict):
+                class_caps = dict(catalog["caps"].get("asset_class", {}))
+        except Exception:
+            class_caps = {}
+        # Sensible defaults if not present
+        if not class_caps:
+            class_caps = {"commodities": 0.20}
+
+        # Debug: show caps once per call (enable via INVESTAI_DEBUG_CAPS=1)
+        try:
+            import os as _os
+            if _os.getenv("INVESTAI_DEBUG_CAPS") == "1":
+                print(f"[cap_info] class_caps keys: {sorted(list(class_caps.keys()))}")
+        except Exception:
+            pass
+
+        # Build class map for current symbols
+        cls_map = {s: _class_of_symbol(s, catalog) for s in symbols}
+        # Iteratively apply caps with headroom-aware redistribution until convergence
+        CAP_EPS = 1e-4
+        MAX_ITERS = 10
+        for _iter in range(MAX_ITERS):
+            changed = False
+            # Compute current totals and headroom per class
+            totals = {}
+            headroom = {}
+            for cls, cap in class_caps.items():
+                if cap is None:
+                    continue
+                capf = float(cap)
+                cls_syms = [s for s in symbols if cls_map.get(s) == cls]
+                if not cls_syms:
+                    continue
+                tot = sum(max(0.0, float(w.get(s, 0.0))) for s in cls_syms)
+                totals[cls] = tot
+                headroom[cls] = max(0.0, capf - tot)
+
+            # Handle violating classes first (largest overage first)
+            violators = []
+            for cls, cap in class_caps.items():
+                if cap is None or cls not in totals:
+                    continue
+                over = float(totals[cls]) - float(cap)
+                if over > 1e-9:
+                    violators.append((cls, over))
+            violators.sort(key=lambda x: x[1], reverse=True)
+
+            for cls, over in violators:
+                capf = float(class_caps.get(cls, 1.0))
+                cls_syms = [s for s in symbols if cls_map.get(s) == cls]
+                if not cls_syms:
+                    continue
+                total_cls = max(1e-12, sum(max(0.0, float(w.get(s, 0.0))) for s in cls_syms))
+                target = max(0.0, capf - CAP_EPS)
+                scale = min(1.0, target / total_cls) if total_cls > 0 else 0.0
+                # Debug
+                try:
+                    import os as _os
+                    if _os.getenv("INVESTAI_DEBUG_CAPS") == "1":
+                        print(f"[cap_enforce] {cls}: total={total_cls:.3f} cap={capf:.2f} scale={scale:.3f}")
+                except Exception:
+                    pass
+                # Reduce class to target
+                reduce_amt = 0.0
+                for s in cls_syms:
+                    old = float(w.get(s, 0.0))
+                    new = max(0.0, old * scale)
+                    w[s] = new
+                    reduce_amt += max(0.0, old - new)
+
+                # Recompute headroom among recipient classes (exclude current class)
+                rec_classes = []
+                for c2, cap2 in class_caps.items():
+                    if c2 == cls or cap2 is None:
+                        continue
+                    # Only classes present among symbols are eligible recipients
+                    if not any(cls_map.get(s) == c2 for s in symbols):
+                        continue
+                    # Current total for c2
+                    tot2 = sum(max(0.0, float(w.get(s, 0.0))) for s in symbols if cls_map.get(s) == c2)
+                    room = max(0.0, float(cap2) - tot2)
+                    if room > 1e-9:
+                        rec_classes.append((c2, room))
+
+                # Distribute to recipient symbols proportionally to their headroom
+                if reduce_amt > 0 and rec_classes:
+                    total_room = sum(r for _, r in rec_classes)
+                    # Build recipient symbol list with per-symbol allocation weights
+                    rec_syms = []
+                    for c2, room in rec_classes:
+                        syms = [s for s in symbols if cls_map.get(s) == c2]
+                        if not syms:
+                            continue
+                        # Split this class's share equally across its symbols by current weights (avoid zero division)
+                        cur_total = sum(max(0.0, float(w.get(s, 0.0))) for s in syms)
+                        if cur_total <= 0:
+                            # equal split
+                            for s in syms:
+                                rec_syms.append((s, room / max(1, len(syms))))
+                        else:
+                            for s in syms:
+                                rec_syms.append((s, room * (float(w.get(s, 0.0)) / cur_total)))
+                    denom = sum(wt for _, wt in rec_syms) or 1.0
+                    for s, wt in rec_syms:
+                        w[s] = float(w.get(s, 0.0)) + reduce_amt * (wt / denom) * (1.0 if total_room <= 0 else (1.0))
+
+                changed = True
+
+            # Early exit if nothing changed this iteration
+            if not changed:
+                break
+
+            # Optional per-iteration debug of totals
+            try:
+                import os as _os
+                if _os.getenv("INVESTAI_DEBUG_CAPS") == "2":
+                    dbg_tot = {}
+                    for cls, cap in class_caps.items():
+                        cls_syms = [s for s in symbols if cls_map.get(s) == cls]
+                        if not cls_syms:
+                            continue
+                        dbg_tot[cls] = sum(max(0.0, float(w.get(s, 0.0))) for s in cls_syms)
+                    print(f"[cap_debug] iter={_iter} totals: {dbg_tot}")
+            except Exception:
+                pass
+        # Optional debug: dump final class totals when requested
+        try:
+            import os as _os
+            if _os.getenv("INVESTAI_DEBUG_CAPS") == "2":
+                totals = {}
+                for cls, cap in class_caps.items():
+                    cls_syms = [s for s in symbols if cls_map.get(s) == cls]
+                    if not cls_syms:
+                        continue
+                    totals[cls] = sum(max(0.0, float(w.get(s, 0.0))) for s in cls_syms)
+                print(f"[cap_debug] final_totals: {totals}")
+        except Exception:
+            pass
+
+        # Enforce core_min explicitly if downstream adjustments drifted
+        try:
+            core_set = [s for s in symbols if s in CORE]
+            sat_set = [s for s in symbols if s in SATS]
+            core_total = sum(max(0.0, float(w.get(s, 0.0))) for s in core_set)
+            if core_total < float(core_min) - 1e-6 and (core_set or sat_set):
+                needed = max(0.0, float(core_min) - core_total)
+                sat_total = sum(max(0.0, float(w.get(s, 0.0))) for s in sat_set)
+                # Reduce satellites proportionally by 'needed' (if available)
+                if sat_total > 1e-12:
+                    scale_sat = max(0.0, (sat_total - needed) / sat_total)
+                    for s in sat_set:
+                        w[s] = max(0.0, float(w.get(s, 0.0)) * scale_sat)
+                # Allocate 'needed' into core proportionally to current core weights (or equally if zero)
+                core_total_post = sum(max(0.0, float(w.get(s, 0.0))) for s in core_set)
+                if core_total_post <= 1e-12:
+                    add_each = needed / max(1, len(core_set)) if core_set else 0.0
+                    for s in core_set:
+                        w[s] = max(0.0, float(w.get(s, 0.0)) + add_each)
+                else:
+                    for s in core_set:
+                        share = float(w.get(s, 0.0)) / core_total_post if core_total_post > 0 else 0.0
+                        w[s] = max(0.0, float(w.get(s, 0.0)) + needed * share)
+        except Exception:
+            pass
+
+        # Final normalization while respecting caps: if sum != 1, allocate deficit to headroom classes
         total = sum(max(0.0, float(v)) for v in w.values())
-        if total > 0:
-            w = {k: float(v) / total for k, v in w.items()}
-        else:
-            # Fallback to equal weight
-            n = len(symbols)
-            w = {symbols[i]: 1.0 / n for i in range(n)}
+        if total > 0 and abs(total - 1.0) > 1e-6:
+            if total < 1.0:
+                deficit = 1.0 - total
+                # Compute headroom per class and distribute deficit accordingly
+                class_head = {}
+                for cls, cap in class_caps.items():
+                    if cap is None:
+                        continue
+                    cls_syms = [s for s in symbols if cls_map.get(s) == cls]
+                    if not cls_syms:
+                        continue
+                    totc = sum(max(0.0, float(w.get(s, 0.0))) for s in cls_syms)
+                    class_head[cls] = max(0.0, float(cap) - totc)
+                total_head = sum(class_head.values())
+                if total_head > 1e-9:
+                    for cls, room in class_head.items():
+                        if room <= 0:
+                            continue
+                        syms = [s for s in symbols if cls_map.get(s) == cls]
+                        if not syms:
+                            continue
+                        add_cls = deficit * (room / total_head)
+                        # spread within class by current weights
+                        cur_total = sum(max(0.0, float(w.get(s, 0.0))) for s in syms)
+                        if cur_total <= 0:
+                            share = add_cls / max(1, len(syms))
+                            for s in syms:
+                                w[s] = float(w.get(s, 0.0)) + share
+                        else:
+                            for s in syms:
+                                w[s] = float(w.get(s, 0.0)) + add_cls * (float(w.get(s, 0.0)) / cur_total)
+                # Always perform a final proportional normalization as a safety net
+                total = sum(max(0.0, float(v)) for v in w.values()) or 1.0
+                w = {k: float(v) / total for k, v in w.items()}
+            else:
+                # Sum > 1.0: scale down proportionally and then clip to caps if needed
+                w = {k: float(v) / total for k, v in w.items()}
+
+            # Safety: quick cap clip if any minor overage remains
+            for _ in range(3):
+                any_change = False
+                for cls, cap in class_caps.items():
+                    if cap is None:
+                        continue
+                    cls_syms = [s for s in symbols if cls_map.get(s) == cls]
+                    if not cls_syms:
+                        continue
+                    totc = sum(max(0.0, float(w.get(s, 0.0))) for s in cls_syms)
+                    if totc > float(cap) + 1e-6:
+                        scale = max(0.0, (float(cap) - CAP_EPS) / max(totc, 1e-12))
+                        reduce_amt = 0.0
+                        for s in cls_syms:
+                            old = float(w.get(s, 0.0))
+                            new = max(0.0, old * scale)
+                            w[s] = new
+                            reduce_amt += max(0.0, old - new)
+                        # Distribute to other classes with headroom
+                        rec = []
+                        for c2, cap2 in class_caps.items():
+                            if c2 == cls or cap2 is None:
+                                continue
+                            sy2 = [s for s in symbols if cls_map.get(s) == c2]
+                            if not sy2:
+                                continue
+                            tot2 = sum(max(0.0, float(w.get(s, 0.0))) for s in sy2)
+                            room = max(0.0, float(cap2) - tot2)
+                            if room > 1e-9:
+                                rec.append((c2, room))
+                        if rec and reduce_amt > 0:
+                            total_room = sum(r for _, r in rec)
+                            for c2, room in rec:
+                                sy2 = [s for s in symbols if cls_map.get(s) == c2]
+                                add_cls = reduce_amt * (room / total_room)
+                                cur_total = sum(max(0.0, float(w.get(s, 0.0))) for s in sy2)
+                                if cur_total <= 0:
+                                    share = add_cls / max(1, len(sy2))
+                                    for s in sy2:
+                                        w[s] = float(w.get(s, 0.0)) + share
+                                else:
+                                    for s in sy2:
+                                        w[s] = float(w.get(s, 0.0)) + add_cls * (float(w.get(s, 0.0)) / cur_total)
+                        any_change = True
+                if not any_change:
+                    break
         
-        return w
+        # Final fallback: if all weights are zero, return equal-weight
+        total_final = sum(max(0.0, float(v)) for v in w.values())
+        if total_final <= 0:
+            n = len(symbols)
+            return {symbols[i]: 1.0 / n for i in range(max(1, n))}
+        return {k: float(v) / total_final for k, v in w.items()}
     except ImportError:
         # If constraints module not available, return weights as-is
         total = sum(max(0.0, float(v)) for v in weights.values())

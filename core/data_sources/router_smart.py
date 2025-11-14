@@ -107,6 +107,30 @@ def _fetch_tiingo_history(symbol, start=None, end=None):
         return None
 
 # ---------- Union fetcher (Stooq primary, Tiingo backfill) ----------
+from core.utils.env_tools import load_config
+from pathlib import Path
+
+def _yfinance_fetch(symbol, start=None, end=None):
+    try:
+        import yfinance as yf
+    except Exception:
+        return None
+    params = {}
+    if start and start not in ("earliest", ""):
+        params["start"] = str(start)
+    if end:
+        params["end"] = str(end)
+    try:
+        df = yf.download(symbol, auto_adjust=False, progress=False, **params)
+    except Exception:
+        return None
+    if df is None or len(df) == 0:
+        return None
+    df = df.reset_index().rename(columns={
+        "Date":"date","Open":"open","High":"high","Low":"low","Close":"close","Adj Close":"adj_close","Volume":"volume"
+    })
+    return df
+
 def fetch_union(
     symbol: str,
     *,
@@ -116,10 +140,18 @@ def fetch_union(
     force: bool = False,
     return_provenance: bool = False,
 ):
+    # Decide whether to include yfinance as a last-resort backfill based on config
+    try:
+        cfg = load_config(Path("config/config.yaml"))
+        use_yf = bool(cfg.get("apis", {}).get("use_yfinance_fallback", cfg.get("data", {}).get("use_yfinance_fallback", False)))
+    except Exception:
+        use_yf = False
     providers: list[tuple[str, Callable]] = [
         ("stooq",  lambda: _stooq_fetch(symbol, start=start, end=end, force=force)),
         ("tiingo", lambda: _fetch_tiingo_history(symbol, start=start, end=end)),
     ]
+    if use_yf:
+        providers.append(("yfinance", lambda: _yfinance_fetch(symbol, start=start, end=end)))
     merged: pd.DataFrame | None = None
     provenance: dict[str, int] = {}
 
