@@ -112,7 +112,10 @@ def _ensure_unique_symbol_index(df: pd.DataFrame) -> pd.DataFrame:
 # Initialize session state - ONLY set defaults if keys don't exist
 # DO NOT overwrite existing values (fixes state reset bug)
 if "page" not in st.session_state:
-    st.session_state["page"] = "Dashboard"
+    st.session_state["page"] = "Landing"
+
+if "beginner_mode" not in st.session_state:
+    st.session_state["beginner_mode"] = True
 
 if "prices_loaded" not in st.session_state:
     st.session_state["prices_loaded"] = None
@@ -124,7 +127,7 @@ if "prov_loaded" not in st.session_state:
 st.sidebar.title("Invest AI")
 
 # Navigation
-nav_pages = ["Dashboard", "Profile", "Portfolios", "Macro", "Diagnostics"]
+nav_pages = ["Landing", "Dashboard", "Profile", "Portfolios", "Macro", "Diagnostics", "Settings"]
 nav_selection = st.sidebar.radio(
     "Navigation", 
     nav_pages,
@@ -136,6 +139,13 @@ if nav_selection != st.session_state["page"]:
     st.session_state["page"] = nav_selection
     st.rerun()
 
+# Beginner mode indicator
+beginner_mode = st.session_state.get("beginner_mode", True)
+if beginner_mode:
+    st.sidebar.caption("🎓 Beginner mode: ON")
+else:
+    st.sidebar.caption("⚙️ Beginner mode: OFF")
+
 # Sidebar buttons
 if st.sidebar.button("Run simulation", key="run_sim_btn"):
     st.session_state["run_simulation"] = True
@@ -145,10 +155,145 @@ if st.sidebar.button("Reset session", key="reset_btn"):
 
 st.title("📊 Invest AI - Portfolio Recommender")
 
+# Helper functions for income-based risk scoring (used by Profile page)
+def compute_risk_score_facts(income_profile: dict) -> float:
+    """Compute objective risk capacity from financial facts.
+    
+    Returns 0-100 score based on:
+    - Income stability (0-25 pts)
+    - Emergency fund coverage (0-25 pts)
+    - Investable surplus (0-25 pts)
+    - Debt burden (0-25 pts)
+    """
+    score = 0.0
+    
+    # Income stability (0-25)
+    stability = income_profile.get("income_stability", "Moderate")
+    stability_map = {
+        "Very unstable": 5, "Unstable": 10, "Moderate": 15, "Stable": 20, "Very stable": 25
+    }
+    score += stability_map.get(stability, 15)
+    
+    # Emergency fund (0-25)
+    efund = income_profile.get("emergency_fund_months", 3)
+    if efund >= 6:
+        score += 25
+    elif efund >= 3:
+        score += 15
+    elif efund >= 1:
+        score += 8
+    else:
+        score += 0
+    
+    # Investable surplus (0-25) - based on ratio to monthly expenses
+    try:
+        investable = float(income_profile.get("investable_amount", 0))
+        monthly_exp = float(income_profile.get("monthly_expenses", 1))
+        if monthly_exp > 0:
+            surplus_ratio = investable / (monthly_exp * 12)  # as fraction of annual expenses
+            if surplus_ratio >= 2.0:
+                score += 25
+            elif surplus_ratio >= 1.0:
+                score += 20
+            elif surplus_ratio >= 0.5:
+                score += 12
+            elif surplus_ratio >= 0.2:
+                score += 8
+            else:
+                score += 3
+        else:
+            score += 10  # neutral if expenses unknown
+    except Exception:
+        score += 10
+    
+    # Debt burden (0-25) - inverse score
+    try:
+        annual_income = float(income_profile.get("annual_income", 0))
+        debt = float(income_profile.get("outstanding_debt", 0))
+        if annual_income > 0:
+            debt_ratio = debt / annual_income
+            if debt_ratio >= 3.0:
+                score += 0  # very high debt
+            elif debt_ratio >= 1.5:
+                score += 8
+            elif debt_ratio >= 0.5:
+                score += 15
+            elif debt_ratio >= 0.1:
+                score += 20
+            else:
+                score += 25  # minimal debt
+        else:
+            score += 15  # neutral
+    except Exception:
+        score += 15
+    
+    return min(100, max(0, score))
+
+def compute_risk_score_combined(risk_score_questionnaire: float, risk_score_facts: float) -> float:
+    """Combine feelings (questionnaire) and facts (income) into unified score.
+    
+    50/50 weighting: both psychology and capacity matter equally.
+    """
+    return (risk_score_questionnaire * 0.5) + (risk_score_facts * 0.5)
+
+def risk_label(score: float) -> str:
+    """Convert numeric risk score to qualitative label."""
+    if score < 20:
+        return "Very Conservative"
+    elif score < 40:
+        return "Conservative"
+    elif score < 60:
+        return "Moderate"
+    elif score < 80:
+        return "Growth-Oriented"
+    else:
+        return "Aggressive"
+
 current_page = st.session_state["page"]
 
+# ====================== LANDING ======================
+if current_page == "Landing":
+    st.header("Welcome to Invest AI")
+    
+    st.markdown("""
+    ### Portfolio recommendations built for learning
+    
+    Invest AI is an **educational tool** that demonstrates how quantitative portfolio construction works. 
+    It combines historical data, risk profiling, and algorithmic optimization to generate diversified 
+    ETF portfolios matched to different risk profiles.
+    
+    #### How it works
+    
+    1. **Profile** → Answer questions about your financial situation and risk preferences
+    2. **Generate** → The system creates portfolio candidates using historical data and optimization
+    3. **Explore** → Compare portfolios, review allocations, see how they would have performed historically
+    4. **Learn** → Understand macro indicators, data quality, and portfolio construction principles
+    
+    #### Important disclaimers
+    
+    ⚠️ **This is NOT financial advice.** Invest AI is an educational demonstration tool. It:
+    
+    - Uses historical data which may not predict future performance
+    - Does not consider your complete financial situation, tax status, or personal circumstances
+    - Cannot replace consultation with a qualified financial advisor
+    - Is provided "as is" with no guarantees of accuracy or suitability
+    
+    **Use at your own risk.** By proceeding, you acknowledge that any investment decisions you make 
+    are your sole responsibility.
+    
+    ---
+    
+    Ready to explore how portfolio construction works?
+    """)
+    
+    if st.button("Start with Profile →", key="landing_to_profile"):
+        st.session_state["page"] = "Profile"
+        st.rerun()
+    
+    st.stop()
+
 # ====================== DASHBOARD ======================
-if current_page == "Dashboard":
+elif current_page == "Dashboard":
     st.header("Dashboard")
     
     # Hero summary
@@ -201,18 +346,135 @@ if current_page == "Dashboard":
         cand_obj = next((c for c in candidates if c.get("name") == chosen_name), None)
         weights = cand_obj.get("weights", {}) if isinstance(cand_obj, dict) else {}
         curve = candidate_curves.get(chosen_name)
+        prov_loaded = st.session_state.get("prov_loaded", {}) or {}
+        
         st.markdown(f"**{chosen_name}**")
+        
+        # Credibility Score (new in v4.5)
+        if weights and prov_loaded:
+            try:
+                # Compute credibility components
+                # 1. History quality (0-40 pts) - average data history across holdings
+                history_scores = []
+                for sym in weights.keys():
+                    pinfo = prov_loaded.get(sym, {})
+                    hist_years = pinfo.get("hist_years", 0) if isinstance(pinfo, dict) else 0
+                    if hist_years >= 15:
+                        history_scores.append(40)
+                    elif hist_years >= 10:
+                        history_scores.append(30)
+                    elif hist_years >= 5:
+                        history_scores.append(20)
+                    else:
+                        history_scores.append(10)
+                history_component = sum(history_scores) / len(history_scores) if history_scores else 20
+                
+                # 2. Holdings diversity (0-30 pts) - number of holdings
+                num_holdings = len([w for w in weights.values() if w > 0.01])
+                if num_holdings >= 8:
+                    holdings_component = 30
+                elif num_holdings >= 5:
+                    holdings_component = 25
+                elif num_holdings >= 3:
+                    holdings_component = 15
+                else:
+                    holdings_component = 10
+                
+                # 3. Data quality (0-30 pts) - provider reliability
+                quality_scores = []
+                for sym in weights.keys():
+                    pinfo = prov_loaded.get(sym, {})
+                    provider = pinfo.get("provider", "") if isinstance(pinfo, dict) else ""
+                    if provider == "tiingo":
+                        quality_scores.append(30)
+                    elif provider == "stooq":
+                        quality_scores.append(25)
+                    else:
+                        quality_scores.append(15)
+                quality_component = sum(quality_scores) / len(quality_scores) if quality_scores else 20
+                
+                credibility_score = history_component + holdings_component + quality_component
+                credibility_pct = min(100, max(0, credibility_score))
+                
+                # Display credibility
+                col_cred, col_div = st.columns(2)
+                with col_cred:
+                    st.metric("Portfolio Credibility", f"{credibility_pct:.0f}%",
+                             help="Based on data history, holdings diversity, and source quality")
+                    if st.session_state.get("beginner_mode", True):
+                        st.caption(f"History: {history_component:.0f}/40 | Holdings: {holdings_component:.0f}/30 | Quality: {quality_component:.0f}/30")
+                
+                # Asset class diversification pie chart (new in v4.5)
+                with col_div:
+                    try:
+                        # Load catalog to get asset classes
+                        asset_classes = {}
+                        for sym, wt in weights.items():
+                            if wt > 0.01:
+                                rec = records.get(sym) if 'records' in locals() else None
+                                if rec:
+                                    if isinstance(rec, dict):
+                                        asset_class = rec.get("asset_class", "Unknown")
+                                    elif hasattr(rec, "asset_class"):
+                                        asset_class = rec.asset_class
+                                    else:
+                                        asset_class = "Unknown"
+                                else:
+                                    asset_class = "Unknown"
+                                asset_classes[asset_class] = asset_classes.get(asset_class, 0) + wt
+                        
+                        if asset_classes:
+                            ac_df = pd.DataFrame({
+                                "Asset Class": list(asset_classes.keys()),
+                                "Weight": [v * 100 for v in asset_classes.values()]
+                            })
+                            st.write("**Diversification**")
+                            st.dataframe(ac_df.set_index("Asset Class"), use_container_width=True)
+                    except Exception:
+                        pass
+                        
+            except Exception as e:
+                st.caption(f"Credibility metrics unavailable: {e}")
+        
+        # Holdings table
         if weights:
+            st.markdown("**Holdings**")
             w_df = pd.Series(weights).sort_values(ascending=False).to_frame("Weight (%)")
             w_df["Weight (%)"] = (w_df["Weight (%)"] * 100).round(2)
             st.dataframe(w_df, use_container_width=True)
+        
+        # Equity curve with beginner explanation
         if curve is not None:
-            st.markdown("**Equity Curve (Full History)**")
+            st.markdown("**Historical Performance (Full Backtest)**")
+            if st.session_state.get("beginner_mode", True):
+                st.caption("📈 This shows how $1 invested at the start would have grown using this portfolio's allocation. "
+                          "Past performance does not guarantee future results.")
             try:
                 curve_plot = curve.resample("W").last() if hasattr(curve, "resample") else curve
                 st.line_chart(curve_plot)
             except Exception:
                 st.caption("Chart unavailable")
+        
+        # Why this portfolio? (new in v4.5)
+        if st.session_state.get("beginner_mode", True):
+            with st.expander("💡 Why this portfolio?"):
+                risk_score = st.session_state.get("risk_score_combined") or st.session_state.get("risk_score", 50)
+                st.markdown(f"""
+                This portfolio was generated to match your risk profile (score: {risk_score:.0f}/100).
+                
+                **What that means:**
+                - The system used historical data to find allocations that balanced returns and volatility
+                - Higher risk scores → more equity exposure, less bonds
+                - Lower risk scores → more fixed income, emphasis on stability
+                - Diversification across asset classes helps reduce concentration risk
+                
+                **Important:** This is an algorithmic recommendation based on historical patterns. It:
+                - Cannot predict future market conditions
+                - Does not account for your complete financial picture (taxes, fees, etc.)
+                - Should be viewed as educational, not prescriptive advice
+                
+                Consider consulting a financial advisor before making investment decisions.
+                """)
     else:
         st.info("No portfolio selected yet. Go to **Portfolios** to generate recommendations.")
     
@@ -225,10 +487,11 @@ if current_page == "Dashboard":
     
     st.stop()
 
-# PROFILE
+# ====================== PROFILE ======================
 elif current_page == "Profile":
-    st.header("Your risk profile")
+    st.header("Your Risk Profile")
     
+    # Import questionnaire mapping functions
     try:
         from core.risk_profile import (
             compute_risk_score,
@@ -243,121 +506,286 @@ elif current_page == "Profile":
         )
     except Exception:
         compute_risk_score = None
-        map_time_horizon_choice = map_loss_tolerance_choice = map_reaction_20_drop_choice = None
-        map_income_stability_choice = map_dependence_on_money_choice = None
-        map_investing_experience_choice = map_safety_net_choice = map_goal_type_choice = None
-        st.warning("Risk profiling unavailable")
-
-    saved_risk_score = st.session_state.get("risk_score")
-    if saved_risk_score is not None:
-        st.success(f"✓ Saved risk score: **{saved_risk_score:.1f}/100**")
+        st.warning("Risk profiling module unavailable")
+    
+    st.markdown("""
+    Building a portfolio starts with understanding **who you are financially** and **how you feel about risk**.
+    Both matter. Complete both panels below to get your comprehensive risk profile.
+    """)
+    
+    # Display saved scores if they exist
+    saved_combined = st.session_state.get("risk_score_combined")
+    saved_questionnaire = st.session_state.get("risk_score_questionnaire")
+    saved_facts = st.session_state.get("risk_score_facts")
+    
+    if saved_combined is not None:
+        st.success(f"✓ **Combined Risk Score: {saved_combined:.1f}/100** ({risk_label(saved_combined)})")
+        col1, col2 = st.columns(2)
+        with col1:
+            if saved_questionnaire is not None:
+                st.caption(f"Feelings: {saved_questionnaire:.1f} ({risk_label(saved_questionnaire)})")
+        with col2:
+            if saved_facts is not None:
+                st.caption(f"Facts: {saved_facts:.1f} ({risk_label(saved_facts)})")
     
     st.markdown("---")
     
-    # Initialize question defaults ONLY if missing (do not overwrite user answers)
-    defaults = {
-        "risk_q1_time_horizon": "7–15 years",
-        "risk_q2_loss_tolerance": "Medium",
-        "risk_q3_reaction20": "Hold and wait",
-        "risk_q4_income_stability": "Moderate",
-        "risk_q5_dependence": "Important but not critical",
-        "risk_q6_experience": "Some experience (< 3 years)",
-        "risk_q7_safety_net": "Moderate safety net (3-6 months)",
-        "risk_q8_goal_type": "Balanced growth (moderate risk)",
-    }
-    for _k, _v in defaults.items():
-        if _k not in st.session_state:
-            st.session_state[_k] = _v
-
-    q1 = st.radio(
-        "**Q1.** How long until you'll need most of this money?",
-        ["0–3 years", "3–7 years", "7–15 years", "15+ years"],
-        key="risk_q1_time_horizon",
-        horizontal=True
-    )
+    # Two-panel layout
+    col_facts, col_feelings = st.columns(2)
     
-    q2 = st.radio(
-        "**Q2.** How comfortable are you with temporary losses?",
-        ["Very low", "Low", "Medium", "High", "Very high"],
-        key="risk_q2_loss_tolerance",
-        horizontal=True
-    )
+    # ========== LEFT PANEL: INCOME & BALANCE SHEET (FACTS) ==========
+    with col_facts:
+        st.subheader("📊 Income & Balance Sheet")
+        st.caption("Objective financial capacity")
+        
+        # Initialize income profile defaults
+        income_defaults = {
+            "annual_income": 75000,
+            "income_stability": "Moderate",
+            "monthly_expenses": 3000,
+            "outstanding_debt": 0,
+            "investable_amount": 10000,
+            "emergency_fund_months": 3,
+        }
+        if "income_profile" not in st.session_state:
+            st.session_state["income_profile"] = income_defaults.copy()
+        
+        ip = st.session_state["income_profile"]
+        
+        st.number_input(
+            "Annual income ($)",
+            min_value=0,
+            value=int(ip.get("annual_income", 75000)),
+            step=5000,
+            key="ip_annual_income",
+            help="Total annual income before taxes"
+        )
+        
+        st.selectbox(
+            "Income stability",
+            ["Very unstable", "Unstable", "Moderate", "Stable", "Very stable"],
+            index=["Very unstable", "Unstable", "Moderate", "Stable", "Very stable"].index(
+                ip.get("income_stability", "Moderate")
+            ),
+            key="ip_income_stability",
+            help="How predictable and secure is your income stream?"
+        )
+        
+        st.number_input(
+            "Monthly expenses ($)",
+            min_value=0,
+            value=int(ip.get("monthly_expenses", 3000)),
+            step=500,
+            key="ip_monthly_expenses",
+            help="Average monthly living expenses"
+        )
+        
+        st.number_input(
+            "Outstanding debt ($)",
+            min_value=0,
+            value=int(ip.get("outstanding_debt", 0)),
+            step=5000,
+            key="ip_outstanding_debt",
+            help="Total debt (credit cards, loans, mortgage balance, etc.)"
+        )
+        
+        st.number_input(
+            "Investable amount ($)",
+            min_value=0,
+            value=int(ip.get("investable_amount", 10000)),
+            step=1000,
+            key="ip_investable_amount",
+            help="Amount you're planning to invest now"
+        )
+        
+        st.number_input(
+            "Emergency fund (months)",
+            min_value=0.0,
+            max_value=24.0,
+            value=float(ip.get("emergency_fund_months", 3)),
+            step=0.5,
+            key="ip_emergency_fund_months",
+            help="How many months of expenses can you cover with savings?"
+        )
+        
+        if st.session_state.get("beginner_mode", True):
+            with st.expander("ℹ️ Why these questions?"):
+                st.markdown("""
+                **Financial facts matter** because they measure your actual capacity to take risk:
+                
+                - **Stable income + emergency fund** → more room for portfolio volatility
+                - **High debt or unstable income** → suggests prioritizing safety and liquidity
+                - **Large investable surplus** → can afford longer time horizons
+                
+                This is objective: the math of your balance sheet determines how much risk you can handle.
+                """)
     
-    q3 = st.radio(
-        "**Q3.** If your portfolio dropped 20% soon after investing?",
-        [
-            "Sell everything immediately",
-            "Sell some to reduce risk",
-            "Hold and wait",
-            "Hold and might buy more",
-            "Definitely buy more (opportunity)",
-        ],
-        key="risk_q3_reaction20"
-    )
+    # ========== RIGHT PANEL: RISK QUESTIONNAIRE (FEELINGS) ==========
+    with col_feelings:
+        st.subheader("🧠 Risk Questionnaire")
+        st.caption("Subjective risk tolerance & preferences")
+        
+        # Initialize questionnaire defaults
+        q_defaults = {
+            "risk_q1_time_horizon": "7–15 years",
+            "risk_q2_loss_tolerance": "Medium",
+            "risk_q3_reaction20": "Hold and wait",
+            "risk_q4_income_stability": "Moderate",
+            "risk_q5_dependence": "Important but not critical",
+            "risk_q6_experience": "Some experience (< 3 years)",
+            "risk_q7_safety_net": "Moderate safety net (3-6 months)",
+            "risk_q8_goal_type": "Balanced growth (moderate risk)",
+        }
+        for _k, _v in q_defaults.items():
+            if _k not in st.session_state:
+                st.session_state[_k] = _v
+        
+        q1 = st.selectbox(
+            "**Q1.** Time horizon?",
+            ["0–3 years", "3–7 years", "7–15 years", "15+ years"],
+            index=["0–3 years", "3–7 years", "7–15 years", "15+ years"].index(
+                st.session_state.get("risk_q1_time_horizon", "7–15 years")
+            ),
+            key="risk_q1_time_horizon"
+        )
+        
+        q2 = st.selectbox(
+            "**Q2.** Loss tolerance?",
+            ["Very low", "Low", "Medium", "High", "Very high"],
+            index=["Very low", "Low", "Medium", "High", "Very high"].index(
+                st.session_state.get("risk_q2_loss_tolerance", "Medium")
+            ),
+            key="risk_q2_loss_tolerance"
+        )
+        
+        q3 = st.selectbox(
+            "**Q3.** If portfolio drops 20%?",
+            [
+                "Sell everything immediately",
+                "Sell some to reduce risk",
+                "Hold and wait",
+                "Hold and might buy more",
+                "Definitely buy more (opportunity)",
+            ],
+            index=[
+                "Sell everything immediately",
+                "Sell some to reduce risk",
+                "Hold and wait",
+                "Hold and might buy more",
+                "Definitely buy more (opportunity)",
+            ].index(st.session_state.get("risk_q3_reaction20", "Hold and wait")),
+            key="risk_q3_reaction20"
+        )
+        
+        q4 = st.selectbox(
+            "**Q4.** Income stability?",
+            ["Very unstable", "Unstable", "Moderate", "Stable", "Very stable"],
+            index=["Very unstable", "Unstable", "Moderate", "Stable", "Very stable"].index(
+                st.session_state.get("risk_q4_income_stability", "Moderate")
+            ),
+            key="risk_q4_income_stability"
+        )
+        
+        q5 = st.selectbox(
+            "**Q5.** Dependence on this money?",
+            [
+                "Critical for living expenses",
+                "Important but not critical",
+                "Helpful but have other income",
+                "Nice-to-have growth money",
+            ],
+            index=[
+                "Critical for living expenses",
+                "Important but not critical",
+                "Helpful but have other income",
+                "Nice-to-have growth money",
+            ].index(st.session_state.get("risk_q5_dependence", "Important but not critical")),
+            key="risk_q5_dependence"
+        )
+        
+        q6 = st.selectbox(
+            "**Q6.** Investing experience?",
+            [
+                "Beginner (first time)",
+                "Some experience (< 3 years)",
+                "Experienced (3-10 years)",
+                "Advanced (10+ years)",
+            ],
+            index=[
+                "Beginner (first time)",
+                "Some experience (< 3 years)",
+                "Experienced (3-10 years)",
+                "Advanced (10+ years)",
+            ].index(st.session_state.get("risk_q6_experience", "Some experience (< 3 years)")),
+            key="risk_q6_experience"
+        )
+        
+        q7 = st.selectbox(
+            "**Q7.** Emergency fund?",
+            [
+                "No emergency fund or insurance",
+                "Small emergency fund (< 3 months)",
+                "Moderate safety net (3-6 months)",
+                "Strong safety net (6+ months)",
+            ],
+            index=[
+                "No emergency fund or insurance",
+                "Small emergency fund (< 3 months)",
+                "Moderate safety net (3-6 months)",
+                "Strong safety net (6+ months)",
+            ].index(st.session_state.get("risk_q7_safety_net", "Moderate safety net (3-6 months)")),
+            key="risk_q7_safety_net"
+        )
+        
+        q8 = st.selectbox(
+            "**Q8.** Main goal?",
+            [
+                "Capital preservation (safety first)",
+                "Income generation (steady returns)",
+                "Balanced growth (moderate risk)",
+                "Aggressive growth (max returns)",
+            ],
+            index=[
+                "Capital preservation (safety first)",
+                "Income generation (steady returns)",
+                "Balanced growth (moderate risk)",
+                "Aggressive growth (max returns)",
+            ].index(st.session_state.get("risk_q8_goal_type", "Balanced growth (moderate risk)")),
+            key="risk_q8_goal_type"
+        )
+        
+        if st.session_state.get("beginner_mode", True):
+            with st.expander("ℹ️ Why these questions?"):
+                st.markdown("""
+                **Your feelings about risk matter** because portfolios only work if you can stick with them:
+                
+                - **Emotional comfort** with volatility is as important as capacity
+                - **Experience** affects how you'll react to market swings
+                - **Goals and time horizon** shape what "success" means for you
+                
+                This is subjective: how you *feel* about risk determines whether you'll stay the course.
+                """)
     
-    q4 = st.radio(
-        "**Q4.** How stable is your income?",
-        ["Very unstable", "Unstable", "Moderate", "Stable", "Very stable"],
-        key="risk_q4_income_stability",
-        horizontal=True
-    )
-    
-    q5 = st.radio(
-        "**Q5.** How dependent are you on this money?",
-        [
-            "Critical for living expenses",
-            "Important but not critical",
-            "Helpful but have other income",
-            "Nice-to-have growth money",
-        ],
-        key="risk_q5_dependence"
-    )
-    
-    q6 = st.radio(
-        "**Q6.** Investing experience?",
-        [
-            "Beginner (first time)",
-            "Some experience (< 3 years)",
-            "Experienced (3-10 years)",
-            "Advanced (10+ years)",
-        ],
-        key="risk_q6_experience"
-    )
-    
-    q7 = st.radio(
-        "**Q7.** Emergency fund and insurance?",
-        [
-            "No emergency fund or insurance",
-            "Small emergency fund (< 3 months)",
-            "Moderate safety net (3-6 months)",
-            "Strong safety net (6+ months)",
-        ],
-        key="risk_q7_safety_net"
-    )
-    
-    q8 = st.radio(
-        "**Q8.** Main goal for this money?",
-        [
-            "Capital preservation (safety first)",
-            "Income generation (steady returns)",
-            "Balanced growth (moderate risk)",
-            "Aggressive growth (max returns)",
-        ],
-        key="risk_q8_goal_type"
-    )
-
     st.markdown("---")
     
-    if st.button("💾 Save profile"):
-        # Ensure all mapping functions are available
-        mapping_funcs = [
-            map_time_horizon_choice, map_loss_tolerance_choice, map_reaction_20_drop_choice,
-            map_income_stability_choice, map_dependence_on_money_choice, map_investing_experience_choice,
-            map_safety_net_choice, map_goal_type_choice
-        ]
-        if compute_risk_score is None or any(f is None for f in mapping_funcs):
-            st.warning("Risk scoring unavailable")
-        else:
+    # Save profile button
+    if st.button("💾 Save Complete Profile", key="save_profile_btn"):
+        # Update income profile from inputs
+        st.session_state["income_profile"] = {
+            "annual_income": st.session_state.get("ip_annual_income", 75000),
+            "income_stability": st.session_state.get("ip_income_stability", "Moderate"),
+            "monthly_expenses": st.session_state.get("ip_monthly_expenses", 3000),
+            "outstanding_debt": st.session_state.get("ip_outstanding_debt", 0),
+            "investable_amount": st.session_state.get("ip_investable_amount", 10000),
+            "emergency_fund_months": st.session_state.get("ip_emergency_fund_months", 3),
+        }
+        
+        # Compute facts score
+        score_facts = compute_risk_score_facts(st.session_state["income_profile"])
+        st.session_state["risk_score_facts"] = score_facts
+        
+        # Compute questionnaire score
+        if compute_risk_score is not None:
             try:
                 answers = {
                     "q1_time_horizon": map_time_horizon_choice(q1),
@@ -369,13 +797,33 @@ elif current_page == "Profile":
                     "q7_safety_net": map_safety_net_choice(q7),
                     "q8_goal_type": map_goal_type_choice(q8),
                 }
-                rscore = compute_risk_score(answers)
-            except Exception as e:
-                st.error(f"Risk scoring error: {e}")
-            else:
-                st.session_state["risk_score"] = rscore
+                score_questionnaire = compute_risk_score(answers)
+                st.session_state["risk_score_questionnaire"] = score_questionnaire
                 st.session_state["risk_answers"] = answers
-                st.success(f"✅ Profile saved. Risk score: **{rscore:.1f}/100**")
+                
+                # Compute combined score
+                score_combined = compute_risk_score_combined(score_questionnaire, score_facts)
+                st.session_state["risk_score_combined"] = score_combined
+                
+                # Also store in risk_score for backward compatibility with Portfolios page
+                st.session_state["risk_score"] = score_combined
+                
+                st.success(f"✅ Profile saved!")
+                st.info(f"""
+                **Risk Scores:**
+                - Facts (financial capacity): {score_facts:.1f}/100 ({risk_label(score_facts)})
+                - Feelings (questionnaire): {score_questionnaire:.1f}/100 ({risk_label(score_questionnaire)})
+                - **Combined**: {score_combined:.1f}/100 ({risk_label(score_combined)})
+                """)
+                
+                st.markdown("Go to **Portfolios** to generate recommendations matched to your profile.")
+                
+            except Exception as e:
+                st.error(f"Error computing questionnaire score: {e}")
+        else:
+            st.warning("Questionnaire scoring unavailable. Only facts score computed.")
+            st.session_state["risk_score_facts"] = score_facts
+            st.session_state["risk_score"] = score_facts
 
 # PORTFOLIOS  
 elif current_page == "Portfolios":
@@ -726,10 +1174,18 @@ elif current_page == "Portfolios":
 elif current_page == "Macro":
     st.header("Macroeconomic Indicators")
     
-    st.markdown("""
-    These indicators help explain the economic environment but don't directly change your portfolio.
-    They provide context for why certain asset mixes may perform better in different conditions.
-    """)
+    beginner_mode = st.session_state.get("beginner_mode", True)
+    
+    if beginner_mode:
+        st.markdown("""
+        These indicators provide **context** for understanding the economic environment. They don't 
+        directly change your portfolio, but they help explain why certain asset classes may perform 
+        differently in different conditions.
+        
+        Use this page to learn what economic factors influence markets, not to time entries or exits.
+        """)
+    else:
+        st.markdown("Macroeconomic context for portfolio performance.")
     
     st.markdown("---")
     
@@ -745,6 +1201,13 @@ elif current_page == "Macro":
                     "**Consumer Price Index (CPI)** measures inflation – the rate at which prices rise. "
                     "Higher inflation can hurt bonds and change how central banks set interest rates, "
                     "which affects stock valuations."
+                ),
+                "portfolio_impact": (
+                    "📊 **What this means for your portfolio:**\n\n"
+                    "- **Rising inflation** → bonds lose purchasing power, equities may struggle if Fed tightens\n"
+                    "- **Falling inflation** → bonds perform better, may signal economic weakness\n"
+                    "- **Stable moderate inflation** → generally favorable for balanced portfolios\n\n"
+                    "💡 *Don't chase inflation reads.* Your portfolio should already balance these risks through diversification."
                 )
             },
             "FEDFUNDS": {
@@ -754,6 +1217,13 @@ elif current_page == "Macro":
                     "This is the **short-term interest rate** set by the Federal Reserve. "
                     "When it's high, cash and short-term bonds pay more, making riskier assets less attractive. "
                     "When it's low, investors often seek higher returns in stocks."
+                ),
+                "portfolio_impact": (
+                    "📊 **What this means for your portfolio:**\n\n"
+                    "- **High rates** → cash earns more, stocks may underperform as borrowing costs rise\n"
+                    "- **Low rates** → encourages risk-taking, can boost stock valuations\n"
+                    "- **Rate cuts** → often bullish for bonds and stocks, but may signal economic worry\n\n"
+                    "💡 *Fed policy works slowly.* Don't overreact to single rate changes."
                 )
             },
             "DGS10": {
@@ -763,6 +1233,13 @@ elif current_page == "Macro":
                     "This **long-term interest rate** is a key benchmark. "
                     "It affects mortgage rates and is often used as the 'risk-free' rate in portfolio models. "
                     "Rising yields can pressure stock prices."
+                ),
+                "portfolio_impact": (
+                    "📊 **What this means for your portfolio:**\n\n"
+                    "- **Rising yields** → bond prices fall, stocks may be less attractive (higher discount rates)\n"
+                    "- **Falling yields** → bond prices rise, stocks may rally (flight to quality or growth optimism)\n"
+                    "- **Yield curve inversion** (when 10Y < 2Y) → historically predicts recessions\n\n"
+                    "💡 *This is the 'price of long-term money'.* It affects everything from mortgages to stock valuations."
                 )
             },
             "UNRATE": {
@@ -772,6 +1249,13 @@ elif current_page == "Macro":
                     "This shows how tight or weak the **job market** is. "
                     "Very low unemployment usually means strong growth (good for stocks) but also inflation risk. "
                     "Very high unemployment can signal recessions."
+                ),
+                "portfolio_impact": (
+                    "📊 **What this means for your portfolio:**\n\n"
+                    "- **Low unemployment** → strong economy, may support stocks, but risk of inflation\n"
+                    "- **Rising unemployment** → can signal economic slowdown, defensive assets may outperform\n"
+                    "- **Persistently high unemployment** → recession risk, lower earnings for companies\n\n"
+                    "💡 *This is a lagging indicator.* By the time unemployment spikes, markets often already reacted."
                 )
             },
         }
@@ -792,7 +1276,13 @@ elif current_page == "Macro":
                     with col2:
                         st.line_chart(s.tail(365), height=200)
                     
-                    st.markdown(info["explanation"])
+                    if beginner_mode:
+                        st.markdown(info["explanation"])
+                        with st.expander("💡 Portfolio implications"):
+                            st.markdown(info["portfolio_impact"])
+                    else:
+                        st.caption(info["explanation"])
+                        
                 except Exception as e:
                     st.caption(f"Error displaying {info['name']}: {e}")
             else:
@@ -806,13 +1296,40 @@ elif current_page == "Macro":
 elif current_page == "Diagnostics":
     st.header("System Diagnostics")
     
-    st.markdown("""
-    This page shows the health of the data universe and provider coverage.
-    The system uses a **snapshot-based** approach at runtime, so live provider issues 
-    don't shrink the universe unexpectedly.
-    """)
+    beginner_mode = st.session_state.get("beginner_mode", True)
+    
+    if beginner_mode:
+        st.markdown("""
+        ### What you're seeing here
+        
+        This page shows the **quality and coverage of the data** used to build portfolio recommendations.
+        
+        **Key concepts:**
+        - **Universe**: The set of ETFs eligible for inclusion in portfolios
+        - **Data history**: How many years of price data each ETF has (more is better for backtesting)
+        - **Providers**: Where the data comes from (Tiingo, Stooq, yfinance)
+        - **Snapshot-based**: The system uses pre-validated data, so temporary API issues don't affect you
+        
+        This is "under the hood" information. You don't need to optimize anything here – it's for transparency.
+        """)
+    else:
+        st.markdown("""
+        Data universe health and provider coverage. System uses snapshot-based approach 
+        to ensure runtime stability.
+        """)
     
     st.markdown("---")
+    
+    # Friendly summary for beginner mode
+    if beginner_mode:
+        st.info("""
+        **🎯 Bottom line:** The system has data for dozens of ETFs spanning many years. 
+        Quality is good, providers are redundant for reliability. You're seeing the building 
+        blocks used to construct portfolio recommendations.
+        
+        **Technical details** below if you're curious about the data sources.
+        """)
+        st.markdown("---")
     
     st.subheader("Universe Summary")
     try:
@@ -842,39 +1359,74 @@ elif current_page == "Diagnostics":
                 st.metric("Dropped", dropped)
         
         # Provider breakdown
-        st.markdown("### Provider Breakdown")
-        from collections import Counter
-        
-        # Handle different record types safely
-        provider_counts = Counter()
-        for sym in valid_symbols:
-            rec = records.get(sym)
-            if rec:
-                # Check if it's a dict or object with provider attribute
-                if isinstance(rec, dict):
-                    prov = rec.get("provider")
-                elif hasattr(rec, "provider"):
-                    prov = rec.provider
-                else:
-                    prov = None
+        if beginner_mode:
+            with st.expander("🔍 Provider Breakdown (technical)", expanded=False):
+                from collections import Counter
                 
-                if prov:
-                    provider_counts[prov] += 1
-        
-        prov_df = pd.DataFrame({
-            "Provider": ["Tiingo", "Stooq", "yfinance"],
-            "Valid ETFs": [
-                provider_counts.get("tiingo", 0),
-                provider_counts.get("stooq", 0),
-                provider_counts.get("yfinance", 0)
-            ]
-        })
-        st.dataframe(prov_df, use_container_width=True, hide_index=True)
-        
-        st.caption(
-            "✅ Using cached snapshot data. Live providers are best-effort and "
-            "do not affect universe size at runtime."
-        )
+                # Handle different record types safely
+                provider_counts = Counter()
+                for sym in valid_symbols:
+                    rec = records.get(sym)
+                    if rec:
+                        # Check if it's a dict or object with provider attribute
+                        if isinstance(rec, dict):
+                            prov = rec.get("provider")
+                        elif hasattr(rec, "provider"):
+                            prov = rec.provider
+                        else:
+                            prov = None
+                        
+                        if prov:
+                            provider_counts[prov] += 1
+                
+                prov_df = pd.DataFrame({
+                    "Provider": ["Tiingo", "Stooq", "yfinance"],
+                    "Valid ETFs": [
+                        provider_counts.get("tiingo", 0),
+                        provider_counts.get("stooq", 0),
+                        provider_counts.get("yfinance", 0)
+                    ]
+                })
+                st.dataframe(prov_df, use_container_width=True, hide_index=True)
+                
+                st.caption(
+                    "✅ Using cached snapshot data. Live providers are best-effort and "
+                    "do not affect universe size at runtime."
+                )
+        else:
+            st.markdown("### Provider Breakdown")
+            from collections import Counter
+            
+            # Handle different record types safely
+            provider_counts = Counter()
+            for sym in valid_symbols:
+                rec = records.get(sym)
+                if rec:
+                    # Check if it's a dict or object with provider attribute
+                    if isinstance(rec, dict):
+                        prov = rec.get("provider")
+                    elif hasattr(rec, "provider"):
+                        prov = rec.provider
+                    else:
+                        prov = None
+                    
+                    if prov:
+                        provider_counts[prov] += 1
+            
+            prov_df = pd.DataFrame({
+                "Provider": ["Tiingo", "Stooq", "yfinance"],
+                "Valid ETFs": [
+                    provider_counts.get("tiingo", 0),
+                    provider_counts.get("stooq", 0),
+                    provider_counts.get("yfinance", 0)
+                ]
+            })
+            st.dataframe(prov_df, use_container_width=True, hide_index=True)
+            
+            st.caption(
+                "✅ Using cached snapshot data. Live providers are best-effort and "
+                "do not affect universe size at runtime."
+            )
     
     except Exception as e:
         st.warning(f"Universe snapshot unavailable: {e}")
@@ -921,9 +1473,59 @@ elif current_page == "Diagnostics":
             st.info("Run a simulation once on the **Portfolios** page to see provider receipts.")
     except Exception as e:
         st.error(f"Failed to load receipts: {e}")
+    
+    st.stop()
+
+# ====================== SETTINGS ======================
+elif current_page == "Settings":
+    st.header("Settings")
+    
+    st.markdown("""
+    ### Application preferences
+    
+    Configure how Invest AI presents information and explanations.
+    """)
+    
+    st.markdown("---")
+    
+    st.subheader("Display Mode")
+    
+    current_mode = st.session_state.get("beginner_mode", True)
+    
+    beginner_mode_toggle = st.checkbox(
+        "🎓 Beginner mode",
+        value=current_mode,
+        help="Show explanations, context, and educational content throughout the app. "
+             "Disable for a more compact, expert-focused interface.",
+        key="beginner_mode_toggle"
+    )
+    
+    if beginner_mode_toggle != current_mode:
+        st.session_state["beginner_mode"] = beginner_mode_toggle
+        st.success(f"Beginner mode {'enabled' if beginner_mode_toggle else 'disabled'}. "
+                   "Navigate to other pages to see changes.")
+    
+    st.markdown("---")
+    
+    st.markdown("""
+    #### What beginner mode does
+    
+    When **enabled**:
+    - Shows explanations and context for metrics, charts, and concepts
+    - Uses qualitative labels alongside numbers (e.g., "Conservative" vs just "30/100")
+    - Provides educational notes about portfolio construction principles
+    - Explains what macro indicators mean for portfolio selection
+    
+    When **disabled**:
+    - Focuses on data and numbers with minimal explanatory text
+    - Assumes familiarity with financial concepts and portfolio theory
+    - More compact interface for experienced users
+    """)
+    
+    st.stop()
 
 else:
     st.error(f"Unknown page: {current_page}")
-    if st.button("Go to Home"):
-        st.session_state["page"] = "Home"
+    if st.button("Go to Landing"):
+        st.session_state["page"] = "Landing"
         st.rerun()

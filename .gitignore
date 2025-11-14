@@ -1,24 +1,48 @@
 # Python
+.venv/
+env/
+venv/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
-# Environments
-.venv/
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Secrets
 .env
+*.env
 config/credentials.env
 
-# Data/cache/logs/artifacts (keep local)
-data/
-**/cache/
+# Data + runtime artifacts
+data/cache/
+data/outputs/
+data/intermediate/
+data/tmp/
+*.parquet
+*.pkl
 *.sqlite
-*.csv
-*.log
-.ipynb_checkpoints/
-.DS_Store
+*.db
 
-# Ignore dev artifacts and logs
+# Raw data CSVs (keep local, don't track)
+data/raw/*.csv
+data/macro/*.csv
+
+# Streamlit / logs
+.streamlit/
+logs/
+*.log
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Dev artifacts
 dev/artifacts/
-dev/*.log
+dev/builds/
 candidates.json
 *.snapshot.json
 *.weights.json
@@ -26,8 +50,6 @@ candidates.json
 
 # Keep config/*.json tracked (except credentials)
 !config/*.json
-config/credentials.env
 
 # Build test results (keep local)
-dev/builds/
 !dev/builds/.gitkeep
