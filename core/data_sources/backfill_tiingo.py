@@ -3,8 +3,11 @@ import os
 import io
 import requests
 import pandas as pd
+from core.utils.env_tools import is_demo_mode
+from .tiingo import fetch_daily as _tiingo_fetch_daily, tiingo_rate_limited, _demo_frame
 
 TIINGO_URL_TMPL = "https://api.tiingo.com/tiingo/daily/{symbol}/prices"
+DEMO_MODE = is_demo_mode()
 
 def _tiingo_key():
     key = os.getenv("TIINGO_API_KEY","").strip()
@@ -13,6 +16,8 @@ def _tiingo_key():
     return key
 
 def fetch_tiingo_daily(symbol: str, start: str = "1980-01-01", end: str | None = None) -> pd.DataFrame:
+    if DEMO_MODE:
+        return _demo_frame(symbol)
     params = {
         "startDate": start,
         "resampleFreq": "daily",
@@ -66,8 +71,10 @@ def merge_old_new(old_df: pd.DataFrame, new_df: pd.DataFrame):
     return both.reset_index(drop=True)
 def fetch_tiingo_history(symbol: str, start: str|None=None, end: str|None=None):
     """Shim: use tiingo.fetch_daily across the requested window."""
-    import os
+    if DEMO_MODE:
+        return _demo_frame(symbol)
     if not os.getenv("TIINGO_API_KEY"):
         raise RuntimeError("TIINGO_API_KEY not set")
-    from .tiingo import fetch_daily
-    return fetch_daily(symbol, start=start, end=end)
+    if tiingo_rate_limited() and os.getenv("TIINGO_SKIP_ON_RATE_LIMIT", "1") == "1":
+        return pd.DataFrame(columns=["date","open","high","low","close","adj_close","volume"])
+    return _tiingo_fetch_daily(symbol, start=start, end=end)

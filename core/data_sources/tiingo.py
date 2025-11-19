@@ -3,16 +3,64 @@ from __future__ import annotations
 import os
 import io
 import logging
+import time
 import pandas as pd
 import requests
 from pathlib import Path
 
-from core.utils.env_tools import load_env_once, load_config
+from core.utils.env_tools import load_env_once, load_config, is_demo_mode
+
+# --- Rate-limit state (module-level) -------------------------------------------------
+# If Tiingo starts returning HTTP 429 or textual rate-limit errors, we set a flag
+# so the rest of the ingest pipeline can fast-skip further Tiingo calls within
+# the same process run (avoids hammering the API and wasting latency).
+RATE_LIMIT_HIT: bool = False
+RATE_LIMIT_TS: float | None = None
+
+# Retry configuration (Phase 3 enhancement)
+MAX_RETRIES: int = 3
+RETRY_BASE_DELAY: float = 2.0  # seconds
+RETRY_MAX_DELAY: float = 16.0  # seconds
+
+def tiingo_rate_limited() -> bool:
+    """Return True if we have observed a Tiingo rate-limit condition this run."""
+    return RATE_LIMIT_HIT
+
+def _mark_rate_limit():
+    global RATE_LIMIT_HIT, RATE_LIMIT_TS
+    RATE_LIMIT_HIT = True
+    RATE_LIMIT_TS = time.time()
+    logger.warning("Tiingo rate limit detected; subsequent Tiingo fetches will be skipped.")
+
+def reset_tiingo_rate_limit():  # manual reset hook (rarely used; keep for tests)
+    global RATE_LIMIT_HIT, RATE_LIMIT_TS
+    RATE_LIMIT_HIT = False
+    RATE_LIMIT_TS = None
 
 logger = logging.getLogger(__name__)
+DEMO_MODE = is_demo_mode()
 
 TIINGO_BASE = "https://api.tiingo.com/tiingo/daily/{ticker}/prices"
 TIINGO_PING = "https://api.tiingo.com/api/test"
+
+def _demo_frame(symbol: str) -> pd.DataFrame:
+    cache_path = Path("data/raw") / f"{symbol.upper()}.csv"
+    try:
+        if cache_path.exists():
+            df = pd.read_csv(cache_path)
+            df.columns = [str(c).strip().lower() for c in df.columns]
+            if "date" in df.columns:
+                df["date"] = pd.to_datetime(df["date"], errors="coerce")
+                df = df[df["date"].notna()]
+            for col in ["open","high","low","close","adj_close","volume"]:
+                if col not in df.columns:
+                    df[col] = pd.NA
+            if "adj_close" in df.columns and df["adj_close"].isna().all():
+                df["adj_close"] = df.get("close")
+            return df[["date","open","high","low","close","adj_close","volume"]].reset_index(drop=True)
+    except Exception:
+        pass
+    return pd.DataFrame(columns=["date","open","high","low","close","adj_close","volume"])
 
 def _get_token_layered() -> str | None:
     """
@@ -105,6 +153,17 @@ def fetch_daily(symbol: str, start: str | None = None, end: str | None = None) -
     Note: If start=None, Tiingo returns full available history (often 10-20+ years).
     This is preferred over forcing a specific start date.
     """
+    if DEMO_MODE:
+        logger.debug("Tiingo fetch skipped for %s (demo mode)", symbol)
+        return _demo_frame(symbol)
+
+    # Fast skip if we've already hit rate limit and skip flag is enabled.
+    skip_on_rate_limit = os.getenv("TIINGO_SKIP_ON_RATE_LIMIT", "1") == "1"
+
+    if tiingo_rate_limited() and skip_on_rate_limit:
+        logger.debug("Tiingo fetch skipped (rate-limit previously detected)")
+        return pd.DataFrame(columns=["date","open","high","low","close","adj_close","volume"])
+
     token = _get_token_layered()
     if not token:
         # Graceful disable when key missing
@@ -120,42 +179,104 @@ def fetch_daily(symbol: str, start: str | None = None, end: str | None = None) -
 
     url = TIINGO_BASE.format(ticker=symbol.lower())
     
-    # Structured logging for diagnostics
-    try:
-        logger.info(f"Tiingo request: {symbol} | start={start or 'None (full history)'} | end={end or 'latest'}")
-        r = requests.get(url, params=params, timeout=30)
-        
-        # Log HTTP status
-        status = r.status_code
-        logger.info(f"Tiingo response: {symbol} | HTTP {status}")
-        
-        r.raise_for_status()
-        df = _normalize_tiingo_df(r.text)
-        
-        # Detailed logging for result
-        if df.empty:
-            logger.warning(f"Tiingo EMPTY: {symbol} | HTTP {status} | rows=0")
-            return pd.DataFrame(columns=["date","open","high","low","close","adj_close","volume"])
-        
-        first_date = df["date"].min()
-        last_date = df["date"].max()
-        rows = len(df)
-        
-        logger.info(f"Tiingo SUCCESS: {symbol} | rows={rows} | {first_date} to {last_date}")
-        
-        # Validate minimum quality: reject suspiciously small responses
-        if rows < 50:
-            logger.warning(f"Tiingo TOO_SMALL: {symbol} | rows={rows} < 50 (likely incomplete data)")
-            return pd.DataFrame(columns=["date","open","high","low","close","adj_close","volume"])
-        
-        return df
-        
-    except requests.HTTPError as e:
-        logger.error(f"Tiingo HTTP_ERROR: {symbol} | status={e.response.status_code if hasattr(e, 'response') else 'unknown'} | {str(e)[:100]}")
+    # Structured logging for diagnostics + exponential backoff retry (Phase 3 enhancement)
+    for attempt in range(MAX_RETRIES):
+        try:
+            logger.info(f"Tiingo request: {symbol} | attempt={attempt+1}/{MAX_RETRIES} | start={start or 'None (full history)'} | end={end or 'latest'}")
+            r = requests.get(url, params=params, timeout=30)
+            # Log HTTP status
+            status = r.status_code
+            logger.info(f"Tiingo response: {symbol} | HTTP {status} | attempt={attempt+1}")
+            
+            # Detect explicit HTTP rate limit before raising
+            if r.status_code == 429:
+                _mark_rate_limit()
+                if skip_on_rate_limit:
+                    return pd.DataFrame(columns=["date","open","high","low","close","adj_close","volume"])
+                if attempt < MAX_RETRIES - 1:
+                    # Exponential backoff: 2s, 4s, 8s (capped at 16s)
+                    delay = min(RETRY_BASE_DELAY * (2 ** attempt), RETRY_MAX_DELAY)
+                    logger.warning(
+                        f"Tiingo rate limit 429: {symbol} | retry in {delay:.1f}s (attempt {attempt+1}/{MAX_RETRIES})"
+                    )
+                    time.sleep(delay)
+                    continue  # Retry
+                else:
+                    logger.error(f"Tiingo rate limit 429: {symbol} | max retries exhausted")
+                    return pd.DataFrame(columns=["date","open","high","low","close","adj_close","volume"])
+
+            r.raise_for_status()
+            df = _normalize_tiingo_df(r.text)
+            
+            # If we got here, request succeeded - break retry loop
+            break
+            
+        except requests.HTTPError as e:
+            status = e.response.status_code if hasattr(e, "response") and e.response is not None else "unknown"
+            if status == 429:
+                _mark_rate_limit()
+                if skip_on_rate_limit:
+                    return pd.DataFrame(columns=["date","open","high","low","close","adj_close","volume"])
+                if attempt < MAX_RETRIES - 1:
+                    delay = min(RETRY_BASE_DELAY * (2 ** attempt), RETRY_MAX_DELAY)
+                    logger.warning(
+                        f"Tiingo HTTP 429: {symbol} | retry in {delay:.1f}s (attempt {attempt+1}/{MAX_RETRIES})"
+                    )
+                    time.sleep(delay)
+                    continue  # Retry
+                else:
+                    logger.error(f"Tiingo HTTP 429: {symbol} | max retries exhausted")
+                    return pd.DataFrame(columns=["date","open","high","low","close","adj_close","volume"])
+            else:
+                # Other HTTP errors - don't retry
+                logger.error(f"Tiingo HTTP_ERROR: {symbol} | status={status} | {str(e)[:100]}")
+                return pd.DataFrame(columns=["date","open","high","low","close","adj_close","volume"])
+        except Exception as e:
+            # Detect indirect rate-limit patterns
+            msg_low = str(e).lower()
+            if any(k in msg_low for k in ["rate", "429", "too many", "exceed"]):
+                _mark_rate_limit()
+                if skip_on_rate_limit:
+                    return pd.DataFrame(columns=["date","open","high","low","close","adj_close","volume"])
+                if attempt < MAX_RETRIES - 1:
+                    delay = min(RETRY_BASE_DELAY * (2 ** attempt), RETRY_MAX_DELAY)
+                    logger.warning(
+                        f"Tiingo rate hint: {symbol} | retry in {delay:.1f}s (attempt {attempt+1}/{MAX_RETRIES})"
+                    )
+                    time.sleep(delay)
+                    continue  # Retry
+                else:
+                    logger.error(f"Tiingo rate limit: {symbol} | max retries exhausted")
+                    return pd.DataFrame(columns=["date","open","high","low","close","adj_close","volume"])
+            else:
+                # Non-rate-limit exception - don't retry
+                logger.error(f"Tiingo EXCEPTION: {symbol} | {type(e).__name__}: {str(e)[:100]}")
+                return pd.DataFrame(columns=["date","open","high","low","close","adj_close","volume"])
+    
+    # Post-retry validation (if we got here, we have a response in 'df' and 'r')
+    # Heuristic textual detection (Tiingo sometimes returns 200 with an error string)
+    head_text = r.text.lower()[:300]
+    if any(phrase in head_text for phrase in ["rate limit", "too many", "exceeded", "throttled"]):
+        _mark_rate_limit()
         return pd.DataFrame(columns=["date","open","high","low","close","adj_close","volume"])
-    except Exception as e:
-        logger.error(f"Tiingo EXCEPTION: {symbol} | {type(e).__name__}: {str(e)[:100]}")
+    
+    # Detailed logging for result
+    if df.empty:
+        logger.warning(f"Tiingo EMPTY: {symbol} | HTTP {status} | rows=0")
         return pd.DataFrame(columns=["date","open","high","low","close","adj_close","volume"])
+    
+    first_date = df["date"].min()
+    last_date = df["date"].max()
+    rows = len(df)
+    
+    logger.info(f"Tiingo SUCCESS: {symbol} | rows={rows} | {first_date} to {last_date}")
+    
+    # Validate minimum quality: reject suspiciously small responses
+    if rows < 50:
+        logger.warning(f"Tiingo TOO_SMALL: {symbol} | rows={rows} < 50 (likely incomplete data)")
+        return pd.DataFrame(columns=["date","open","high","low","close","adj_close","volume"])
+    
+    return df
 
 # --- Registry/Router compatibility ------------------------------------------
 
@@ -171,5 +292,11 @@ def fetch(symbol: str, start: str | None = None, end: str | None = None) -> pd.D
     """
     return fetch_daily(symbol, start=start, end=end)
 
-__all__ = ["fetch_daily", "load_daily", "fetch"]
+__all__ = [
+    "fetch_daily",
+    "load_daily",
+    "fetch",
+    "tiingo_rate_limited",
+    "reset_tiingo_rate_limit",
+]
 

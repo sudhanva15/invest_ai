@@ -2,6 +2,7 @@
 from dotenv import dotenv_values
 import os
 from pathlib import Path
+from functools import lru_cache
 
 def load_env_once(dotenv_path: str | None = None):
     """
@@ -67,3 +68,34 @@ def ensure_dirs(cfg: dict) -> None:
         if d:
             d.mkdir(parents=True, exist_ok=True)
 # =========================================================================== 
+
+def _truthy(value, default: bool = False) -> bool:
+    if value is None:
+        return bool(default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def env_flag(name: str, default: bool | str = False) -> bool:
+    """Return boolean interpretation of an environment flag (loads .env once)."""
+    load_env_once()
+    val = os.getenv(name)
+    if val is None:
+        return _truthy(default, default=False)
+    return _truthy(val, default=False)
+
+
+@lru_cache(maxsize=None)
+def is_demo_mode() -> bool:
+    """True when INVEST_AI_DEMO is truthy (1/true/yes)."""
+    return env_flag("INVEST_AI_DEMO", False)
+
+
+@lru_cache(maxsize=None)
+def is_production_env() -> bool:
+    """True when INVEST_AI_ENV is 'production'."""
+    load_env_once()
+    return os.getenv("INVEST_AI_ENV", "").strip().lower() == "production"

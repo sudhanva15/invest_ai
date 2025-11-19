@@ -1,6 +1,7 @@
 from __future__ import annotations
 import pandas as pd
 import logging
+from core.utils.env_tools import is_demo_mode
 
 def _normalize_stooq_symbol(sym: str) -> str:
     s = sym.strip().lower()
@@ -23,6 +24,7 @@ else:
 _CACHE_DIR = _ROOT / "data" / "raw"
 _CACHE_DIR.mkdir(parents=True, exist_ok=True)
 logger = logging.getLogger(__name__)
+DEMO_MODE = is_demo_mode()
 
 def _stooq_url(symbol: str) -> str:
     s = symbol.strip().lower()
@@ -51,7 +53,7 @@ def load_daily(symbol: str, start: str = "2000-01-01") -> pd.DataFrame:
             df = None
 
     # Fetch if cache missing/invalid
-    if df is None or df.empty:
+    if (df is None or df.empty) and not DEMO_MODE:
         for url in (_stooq_url(symbol), _stooq_url_alt(symbol)):
             try:
                 df = pd.read_csv(url)

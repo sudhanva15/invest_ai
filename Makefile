@@ -24,6 +24,10 @@ help:
 	@echo ""
 	@echo "See dev/Makefile for more targets"
 	@echo ""
+	@echo "TESTS & SMOKES:"
+	@echo "  make test-unit             Run full pytest suite"
+	@echo "  make test-risk-profile     Run RiskProfile integration test"
+	@echo "  make smoke-phase3          Run Phase 3 multi-factor smoke script"
 
 # =============================================================================
 # BUILD TESTING
@@ -64,3 +68,48 @@ run-balanced run-growth run-stress validate test-all-v3:
 .PHONY: verify-all
 verify-all:
 	bash dev/verify_all.sh
+
+# =============================================================================
+# LOCAL TESTS & SMOKES (Phase 3 enhanced)
+# =============================================================================
+
+.PHONY: test-unit test-risk-profile smoke-phase3 test-phase3 test-task1 test-task2 verify-tasks
+
+test-unit:
+	PYTHONPATH=. pytest
+
+test-risk-profile:
+	PYTHONPATH=. pytest tests/test_risk_profile_integration.py -q
+
+smoke-phase3:
+	@echo "Running Phase 3 smoke test (A-Z verification)..."
+	PYTHONPATH=. .venv/bin/python dev/smoke_phase3.py
+
+# Phase 3 Task-specific tests
+test-task1:
+	@echo "Testing Task 1: Risk → CAGR mapping..."
+	PYTHONPATH=. .venv/bin/pytest tests/test_risk_profile_cagr_mapping.py -v
+
+test-task2:
+	@echo "Testing Task 2: Adaptive portfolio thresholds..."
+	PYTHONPATH=. .venv/bin/pytest tests/test_adaptive_thresholds.py -v
+
+test-phase3: test-task1 test-task2 smoke-phase3
+	@echo "✅ All Phase 3 tests passed!"
+
+verify-tasks:
+	@echo "========================================="
+	@echo "Phase 3 Task Verification"
+	@echo "========================================="
+	@echo "Task 1 (Risk → CAGR):"
+	@PYTHONPATH=. .venv/bin/pytest tests/test_risk_profile_cagr_mapping.py -v --tb=short
+	@echo ""
+	@echo "Task 2 (Adaptive Thresholds):"
+	@PYTHONPATH=. .venv/bin/pytest tests/test_adaptive_thresholds.py -v --tb=short
+	@echo ""
+	@echo "Task 3 (4-Stage Fallback):"
+	@PYTHONPATH=. .venv/bin/python dev/smoke_phase3.py
+	@echo ""
+	@echo "========================================="
+	@echo "✅ ALL PHASE 3 TASKS VERIFIED"
+	@echo "========================================="

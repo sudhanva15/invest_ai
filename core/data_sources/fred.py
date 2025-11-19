@@ -3,9 +3,12 @@ import os, time, json
 import pandas as pd
 from datetime import datetime
 from fredapi import Fred
+from core.utils.env_tools import is_demo_mode
 
 CACHE_DIR = os.path.join("data","macro")
 os.makedirs(CACHE_DIR, exist_ok=True)
+
+DEMO_MODE = is_demo_mode()
 
 # Default macro menu (you can add more):
 DEFAULT_SERIES = {
@@ -40,9 +43,22 @@ def fetch_series(series_id: str, start: str | None=None, end: str | None=None) -
     """
     cp = _cache_path(series_id)
     try:
-        if os.path.exists(cp) and (time.time() - os.path.getmtime(cp) < 24*3600):
-            s = pd.read_csv(cp, parse_dates=["date"], index_col="date")["value"]
+        if os.path.exists(cp):
+            cache_fresh = (time.time() - os.path.getmtime(cp) < 24*3600)
+            if DEMO_MODE or cache_fresh:
+                s = pd.read_csv(cp, parse_dates=["date"], index_col="date")["value"]
+            else:
+                fred = _fred()
+                data = fred.get_series(series_id)  # pandas Series with DatetimeIndex
+                s = pd.Series(data)
+                s.index.name = "date"
+                s.name = series_id
+                df = s.sort_index().to_frame("value")
+                df.to_csv(cp)
+                s = df["value"]
         else:
+            if DEMO_MODE:
+                return pd.Series(name=series_id, dtype="float64")
             fred = _fred()
             data = fred.get_series(series_id)  # pandas Series with DatetimeIndex
             s = pd.Series(data)

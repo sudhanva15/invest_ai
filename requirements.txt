@@ -6,6 +6,7 @@ pyportfolioopt==1.5.5
 plotly==5.24.1
 streamlit==1.39.0
 requests==2.32.3
+scipy==1.13.1
 python-dotenv==1.0.1
 pydantic==2.9.2
 fastapi==0.115.0

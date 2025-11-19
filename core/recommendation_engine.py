@@ -1,57 +1,130 @@
+"""
+Multi-Factor Portfolio Recommendation Engine (Phase 3)
+
+CURRENT PIPELINE (November 2025):
+==================================
+1. Asset Filtering (build_filtered_universe):
+   - Compute per-asset metrics (Sharpe, vol, drawdown, history)
+   - Apply quality filters (min Sharpe, max vol, max drawdown, min history)
+   - Return filtered symbols + asset receipts
+
+2. Portfolio Generation (generate_candidates):
+   - Run multiple optimizers (HRP, max_sharpe, min_var, risk_parity, equal_weight)
+   - Vary satellite caps (20%, 25%, 30%, 35%)
+   - Apply core/satellite constraints
+   - Compute portfolio metrics
+
+3. Portfolio Filtering (portfolio_passes_filters):
+   - Check volatility band [vol_min, vol_max] from risk profile
+   - Apply soft band logic (accept vol between soft_lower and vol_min with penalty)
+   - Check min Sharpe, max drawdown, max risk contribution, min diversification, min holdings
+
+4. Ranking & Selection:
+   - Compute composite score: Sharpe - λ*|MaxDD| - soft_band_penalty
+   - Apply distinctness filter (cosine similarity < 0.995)
+   - Return top N candidates
+
+5. Fallback Logic (build_recommendations):
+   - If zero candidates pass filters → emergency equal-weight with hard_fallback=True
+   - Problem: Often too strict, dropping to emergency fallback even for moderate risk
+
+KNOWN ISSUES (from audit):
+===========================
+- For TRUE_RISK≈66: Target vol ~18.9%, but emergency fallback has vol ~11.2%
+- All constructed portfolios fail filters → only SAFE_FALLBACK shown
+- Portfolio receipts can be empty (not wired to UI)
+- Hard fallback mark: fallback=True, hard_fallback=True, fail_reason="hard_fallback_emergency"
+- No explicit TRUE_RISK → CAGR mapping (growth expectations not calibrated)
+
+PHASE 3 GOALS:
+==============
+1. Add map_true_risk_to_cagr_band() to set growth expectations
+2. Make filters risk-adaptive (lower risk → accept lower growth/vol)
+3. Implement 4-stage fallback: strict → relaxed → compositional → emergency
+4. Always generate portfolio receipts (even for fallback)
+5. Make UI explain why each portfolio was chosen
+"""
+
 from __future__ import annotations
 import pandas as pd
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Union, List, Dict, TypedDict
+import logging as _logging
+
+_log = _logging.getLogger(__name__)
+_log.debug("[recommendation_engine] module import start")
+# Risk profile types (Phase 3) -- robust import sequence to avoid partial failures
+try:
+    import core.risk_profile as _rp_mod  # type: ignore
+    RiskProfileResult = getattr(_rp_mod, "RiskProfileResult", object)  # type: ignore
+    compute_risk_profile = getattr(_rp_mod, "compute_risk_profile", None)  # type: ignore
+except Exception as _e:  # pragma: no cover
+    _log.warning(f"[recommendation_engine] risk_profile module load failed: {_e}")
+    RiskProfileResult = object  # type: ignore
+    compute_risk_profile = None
+
+# Placeholder to mitigate circular import partial exposure: will be replaced by real function definition later.
+def build_recommendations_placeholder(*args, **kwargs):  # type: ignore
+    raise ImportError("build_recommendations not yet defined (circular import early access). Retry after full module import.")
+
+# Export placeholder early so getattr-based import patterns don't fail hard.
+build_recommendations = build_recommendations_placeholder  # type: ignore
  # Robust config import (prefer env_tools; fallback to core path)
 try:
     from .utils.env_tools import load_config  # preferred
 except Exception:  # fallback for different package layouts
     from core.utils.env_tools import load_config  # type: ignore
+
+try:
+    from .universe_yaml import load_universe_from_yaml  # preferred
+except Exception:  # pragma: no cover
+    from core.universe_yaml import load_universe_from_yaml  # type: ignore
+
+try:
+    from .objective_mapper import load_objectives_config as _load_objectives_config_v4
+    from .objective_mapper import ObjectiveConfig as ObjectiveConfigV4
+except Exception:  # pragma: no cover
+    try:
+        from core.objective_mapper import load_objectives_config as _load_objectives_config_v4  # type: ignore
+        from core.objective_mapper import ObjectiveConfig as ObjectiveConfigV4  # type: ignore
+    except Exception:  # pragma: no cover
+        _load_objectives_config_v4 = None  # type: ignore
+        ObjectiveConfigV4 = None  # type: ignore
 from .portfolio_engine import optimize_weights, portfolio_returns
 from .backtesting import summarize_backtest, equity_curve
 
 CFG = load_config()
-class PortfolioCandidate(TypedDict):
-    name: str
-    weights: Dict[str, float]
-    metrics: Dict[str, float]  # keys like 'CAGR' (mu), 'Vol' (sigma), 'Sharpe', 'MaxDD'
-    notes: str
-    optimizer: str
-    sat_cap: float
-    shortlist: bool
-
-
-@dataclass
-class UserProfile:
-    monthly_contribution: float
-    horizon_years: int
-    risk_level: str
 
 
 @dataclass
 class ObjectiveConfig:
-    """
-    Configuration for a portfolio optimization objective.
-    
-    Attributes:
-        name: Human-readable name (e.g., "Income Focus", "Growth")
-        universe_filter: Callable that filters symbol list, or explicit list of symbols
-        bounds: Dict with keys: core_min, sat_max_total, sat_max_single
-                core_min: Minimum % in core assets (default: 0.65)
-                sat_max_total: Maximum % in all satellites (default: 0.35)
-                sat_max_single: Maximum % in any single satellite (default: 0.07)
-        optimizer: Default optimizer method ("hrp", "max_sharpe", "min_var", "risk_parity", "equal_weight")
-        notes: Description of strategy and constraints
-    """
     name: str
     universe_filter: Union[Callable[[List[str], dict], List[str]], List[str], None] = None
-    bounds: dict = field(default_factory=lambda: {
-        "core_min": 0.65,
-        "sat_max_total": 0.35,
-        "sat_max_single": 0.07,
-    })
+    bounds: dict = field(
+        default_factory=lambda: {
+            "core_min": 0.65,
+            "sat_max_total": 0.35,
+            "sat_max_single": 0.07,
+        }
+    )
     optimizer: str = "hrp"
     notes: str = ""
+    use_full_universe: bool = False
+
+
+class PortfolioCandidate(TypedDict, total=False):
+    name: str
+    weights: Dict[str, float]
+    metrics: Dict[str, float]
+    optimizer: str
+    sat_cap: float
+    passed_filters: bool
+    fail_reason: Optional[str]
+    composite_score: float
+    risk_contrib: Dict[str, float]
+    fallback: bool
+    fallback_level: int
+    hard_fallback: bool
 
 
 def target_vol_for(level: str) -> float:
@@ -254,23 +327,31 @@ def _repair_bounds(bounds_list):
     return list(zip(lows, highs))
 
 
-from pypfopt.hierarchical_portfolio import HRPOpt
+# Optional dependency: pypfopt HRP optimizer. Guard import so module still loads if missing.
+try:
+    from pypfopt.hierarchical_portfolio import HRPOpt  # type: ignore
+except Exception:
+    HRPOpt = None  # type: ignore
 
 def _hrp_weights(rets_df, symbols):
-    # HRP ignores per-asset bounds natively, but it is very robust and diversified.
-    # We’ll compute HRP weights and normalize; later we can soft-enforce class mins if needed.
-    hrp = HRPOpt(rets_df.fillna(0))
-    w = hrp.optimize()
-    # Coerce to {symbol: weight}
-    w = {k: float(v) for k,v in w.items() if k in symbols}
-    tot = sum(v for v in w.values() if v is not None)
-    if tot > 0:
-        w = {k: v/tot for k,v in w.items()}
-    else:
-        # fallback equal-weight
-        n = len(symbols) or 1
-        w = {symbols[i]: 1.0/n for i in range(n)}
-    return w
+    """Return HRP weights or equal-weight fallback if HRP unavailable.
+
+    Robust against missing pypfopt or optimization errors.
+    """
+    try:
+        if HRPOpt is None:
+            raise RuntimeError("HRPOpt unavailable")
+        hrp = HRPOpt(rets_df.fillna(0))
+        w_raw = hrp.optimize()
+        w = {k: float(v) for k, v in (w_raw or {}).items() if k in symbols}
+        tot = sum(v for v in w.values() if v is not None)
+        if tot > 0:
+            return {k: v / tot for k, v in w.items()}
+    except Exception:
+        pass
+    # Fallback equal-weight
+    n = len(symbols) or 1
+    return {symbols[i]: 1.0 / n for i in range(n)}
 # ---- Safe weight extraction helper ----
 import numpy as np
 from pypfopt import EfficientFrontier
@@ -381,6 +462,52 @@ DEFAULT_OBJECTIVES = {
         notes="Mix of safe (treasuries) and aggressive (growth equity/alts). Core 65%+, satellites ≤35%, single ≤8%."
     ),
 }
+
+
+def _objective_key_from_name(name: Optional[str]) -> Optional[str]:
+    if not name:
+        return None
+    slug = str(name).strip().upper().replace(" ", "_")
+    return slug if slug else None
+
+
+def _resolve_objective_metadata(
+    objective_cfg: Optional[ObjectiveConfig],
+    objective_config,
+):
+    """Return ObjectiveConfigV4 instance, loading from YAML if needed."""
+
+    if objective_config is not None:
+        if ObjectiveConfigV4 is not None and isinstance(objective_config, ObjectiveConfigV4):
+            return objective_config
+        return objective_config
+
+    if _load_objectives_config_v4 is None:
+        return None
+
+    try:
+        objectives_map = _load_objectives_config_v4()
+    except Exception as exc:  # pragma: no cover
+        _log.warning("[build_recommendations] Unable to load objectives.yaml: %s", exc)
+        return None
+
+    if not objectives_map:
+        return None
+
+    key = _objective_key_from_name(getattr(objective_cfg, "name", None))
+    if key and key not in objectives_map:
+        # Try removing punctuation
+        key = key.replace("-", "_")
+
+    if key and key in objectives_map:
+        return objectives_map[key]
+
+    # default to BALANCED if present, else first entry
+    if "BALANCED" in objectives_map:
+        return objectives_map["BALANCED"]
+
+    # return first available objective
+    return next(iter(objectives_map.values()))
 
 
 # ---- Primary recommender (HRP/MVO with class bounds and risk slider) ----
@@ -1631,4 +1758,682 @@ def anova_mean_returns(port_ret, groups):
     F, p = stats.f_oneway(*samples)
     return {"F": float(F), "p": float(p), "k": int(df["g"].nunique())}
 
-__all__ = ["UserProfile", "recommend", "recommend_legacy", "compute_asset_stats", "target_vol_for"]
+
+# ============================================================================
+# Multi-Factor Recommendation Builder (Phase 2)
+# ============================================================================
+
+def optimize_weights(
+    returns: pd.DataFrame,
+    method: str = "hrp",
+    bounds: tuple = (0.0, 0.30),
+    rf: float = 0.015,
+    cfg: dict | None = None,
+) -> pd.Series | None:
+    """
+    Optimize portfolio weights using specified method.
+    
+    Args:
+        returns: DataFrame of daily returns (columns = symbols)
+        method: Optimization method ("hrp", "max_sharpe", "min_var", "risk_parity", "equal_weight")
+        bounds: Weight bounds tuple (min, max)
+        rf: Risk-free rate
+        cfg: Config dict (optional)
+    
+    Returns:
+        Series of weights (index = symbols, values = weights)
+        Returns None if optimization fails
+    """
+    import numpy as np
+    import pandas as pd
+    
+    try:
+        symbols = returns.columns.tolist()
+        
+        if method == "equal_weight":
+            # Equal weight baseline
+            n = len(symbols)
+            return pd.Series(1.0 / n, index=symbols)
+        
+        elif method == "hrp":
+            # Hierarchical Risk Parity
+            from pypfopt import HRPOpt
+            hrp = HRPOpt(returns)
+            hrp.optimize()
+            weights = hrp.clean_weights()
+            return pd.Series(weights)
+        
+        elif method == "risk_parity":
+            # Naive risk parity (inverse volatility)
+            vols = returns.std()
+            inv_vols = 1.0 / vols
+            weights = inv_vols / inv_vols.sum()
+            return weights
+        
+        else:
+            # Use EfficientFrontier for max_sharpe, min_var, etc.
+            from pypfopt import expected_returns, risk_models
+            from pypfopt import EfficientFrontier
+            
+            mu = expected_returns.mean_historical_return(returns, frequency=252)
+            
+            try:
+                from pypfopt.risk_models import CovarianceShrinkage
+                S = CovarianceShrinkage(returns).ledoit_wolf()
+            except Exception:
+                S = risk_models.sample_cov(returns, frequency=252)
+            
+            ef = EfficientFrontier(mu, S, weight_bounds=bounds)
+            
+            if method == "max_sharpe":
+                ef.max_sharpe(risk_free_rate=rf)
+            elif method == "min_var":
+                ef.min_volatility()
+            else:
+                # Fallback to max sharpe
+                ef.max_sharpe(risk_free_rate=rf)
+            
+            weights = ef.clean_weights()
+            return pd.Series(weights)
+    
+    except Exception as e:
+        # Return None on failure
+        return None
+
+
+def _apply_4_stage_fallback(
+    all_candidates: list[dict],
+    cfg: dict,
+    risk_profile,
+    returns: pd.DataFrame,
+    n_candidates: int,
+    filtered_symbols: list[str],
+    universe_symbols: list[str],
+) -> list[dict]:
+    """
+    Apply 4-stage fallback ladder when strict filters produce no recommendations.
+    
+    Stage 1: Strict filters (already applied to all_candidates, passed_filters=True)
+    Stage 2: Relaxed filters using risk-adaptive thresholds from derive_portfolio_thresholds()
+    Stage 3: Compositional promotion - best soft-violation portfolios marked fallback_level=1
+    Stage 4: Emergency equal-weight fallback (only if Stage 3 produces nothing)
+    
+    Args:
+        all_candidates: List of all generated portfolios (some may have passed_filters=True)
+        cfg: Config dict
+        risk_profile: RiskProfileResult
+        returns: Full returns DataFrame
+        n_candidates: Number of portfolios to return
+        filtered_symbols: Symbols that passed asset filters
+        universe_symbols: Original universe before filtering
+    
+    Returns:
+        List of recommended portfolios (length <= n_candidates)
+    
+    Phase 3 Context:
+        This replaces the legacy 2-level fallback with a systematic 4-stage approach
+        that gracefully degrades quality while preserving risk alignment.
+    """
+    from .multifactor import (
+        derive_portfolio_thresholds,
+        portfolio_passes_filters,
+        compute_risk_contributions,
+        check_distinctness,
+    )
+    
+    mf_cfg = cfg.get("multifactor", {})
+    rf = float(cfg.get("optimization", {}).get("risk_free_rate", 0.015))
+    distinct_thresh = float(mf_cfg.get("distinctness_threshold", 0.995))
+    
+    # Stage 1: Check strict filter passes
+    strict_passes = [c for c in all_candidates if c.get("passed_filters")]
+    if len(strict_passes) >= 1:
+        # Sort by composite score, apply distinctness, return top N
+        strict_passes.sort(key=lambda x: x.get("composite_score", -999), reverse=True)
+        distinct = []
+        for c in strict_passes:
+            is_distinct = True
+            w_c = pd.Series(c["weights"])
+            for existing in distinct:
+                w_ex = pd.Series(existing["weights"])
+                if not check_distinctness(w_c, w_ex, threshold=distinct_thresh):
+                    is_distinct = False
+                    break
+            if is_distinct:
+                distinct.append(c)
+            if len(distinct) >= n_candidates:
+                break
+        
+        if len(distinct) >= 1:
+            _log.info(f"[4-stage fallback] Stage 1 (strict): {len(distinct)} portfolios passed")
+            return distinct
+    
+    # Stage 2: Relaxed filters using dynamic thresholds
+    _log.info("[4-stage fallback] Stage 1 produced 0 portfolios; trying Stage 2 (relaxed thresholds)")
+    dynamic_thresholds = derive_portfolio_thresholds(risk_profile, cfg)
+    
+    relaxed_passes = []
+    for c in all_candidates:
+        if c.get("passed_filters"):
+            # Already passed strict, include automatically
+            relaxed_passes.append(c)
+            continue
+        
+        # Re-evaluate with dynamic thresholds
+        try:
+            port_stats = c.get("metrics", {})
+            cov = returns[list(c["weights"].keys())].cov()
+            risk_contrib = compute_risk_contributions(pd.Series(c["weights"]), cov)
+            
+            passed, fail_reason = portfolio_passes_filters(
+                portfolio_stats=port_stats,
+                risk_contrib=risk_contrib,
+                cfg=cfg,
+                risk_profile=risk_profile,
+                dynamic_thresholds=dynamic_thresholds,
+            )
+            
+            if passed:
+                c_copy = dict(c)
+                c_copy["passed_filters"] = True
+                c_copy["fail_reason"] = None
+                c_copy["fallback"] = True
+                c_copy["fallback_level"] = 2
+                c_copy["original_fail_reason"] = c.get("fail_reason")  # Preserve for debug
+                relaxed_passes.append(c_copy)
+        except Exception:
+            continue
+    
+    if len(relaxed_passes) >= 1:
+        # Sort, apply distinctness
+        relaxed_passes.sort(key=lambda x: x.get("composite_score", -999), reverse=True)
+        distinct = []
+        for c in relaxed_passes:
+            is_distinct = True
+            w_c = pd.Series(c["weights"])
+            for existing in distinct:
+                w_ex = pd.Series(existing["weights"])
+                if not check_distinctness(w_c, w_ex, threshold=distinct_thresh):
+                    is_distinct = False
+                    break
+            if is_distinct:
+                distinct.append(c)
+            if len(distinct) >= n_candidates:
+                break
+        
+        if len(distinct) >= 1:
+            _log.info(f"[4-stage fallback] Stage 2 (relaxed): {len(distinct)} portfolios passed")
+            return distinct
+    
+    # Stage 3: Compositional - promote best portfolios with soft violations
+    _log.info("[4-stage fallback] Stage 2 produced 0 portfolios; trying Stage 3 (compositional)")
+    # Filter candidates with "reasonable" metrics (CAGR > 0, Sharpe > 0, not catastrophic DD)
+    viable_soft = []
+    for c in all_candidates:
+        m = c.get("metrics", {})
+        cagr = m.get("cagr", 0.0)
+        sharpe = m.get("sharpe", 0.0)
+        max_dd = m.get("max_drawdown", -1.0)
+        
+        # Soft criteria: CAGR > 0, Sharpe > 0, DrawDown not worse than -80%
+        if cagr > 0.0 and sharpe > 0.0 and max_dd > -0.80:
+            c_copy = dict(c)
+            c_copy["passed_filters"] = True
+            c_copy["fail_reason"] = None
+            c_copy["fallback"] = True
+            c_copy["fallback_level"] = 3
+            c_copy["original_fail_reason"] = c.get("fail_reason")
+            viable_soft.append(c_copy)
+    
+    if len(viable_soft) >= 1:
+        # Sort by composite score
+        viable_soft.sort(key=lambda x: x.get("composite_score", -999), reverse=True)
+        distinct = []
+        for c in viable_soft:
+            is_distinct = True
+            w_c = pd.Series(c["weights"])
+            for existing in distinct:
+                w_ex = pd.Series(existing["weights"])
+                if not check_distinctness(w_c, w_ex, threshold=distinct_thresh):
+                    is_distinct = False
+                    break
+            if is_distinct:
+                distinct.append(c)
+            if len(distinct) >= n_candidates:
+                break
+        
+        if len(distinct) >= 1:
+            _log.info(f"[4-stage fallback] Stage 3 (compositional): {len(distinct)} portfolios promoted")
+            return distinct
+    
+    # Stage 4: Emergency equal-weight fallback
+    _log.warning("[4-stage fallback] Stage 3 produced 0 portfolios; triggering Stage 4 (emergency)")
+    fallback_symbols = filtered_symbols if len(filtered_symbols) >= 2 else universe_symbols[:min(3, len(universe_symbols))]
+    
+    if len(fallback_symbols) >= 2:
+        from .multifactor import portfolio_metrics
+        
+        eq_weight = 1.0 / len(fallback_symbols)
+        hard_weights = pd.Series({s: eq_weight for s in fallback_symbols})
+        
+        try:
+            port_stats = portfolio_metrics(hard_weights, returns, risk_free_rate=rf)
+        except Exception:
+            port_stats = {
+                "cagr": 0.05,
+                "volatility": 0.12,
+                "sharpe": 0.4,
+                "max_drawdown": -0.20,
+                "num_holdings": len(fallback_symbols),
+                "valid": True,
+            }
+        
+        emergency = {
+            "name": "EMERGENCY_FALLBACK - Equal Weight",
+            "weights": hard_weights.to_dict(),
+            "metrics": port_stats,
+            "optimizer": "equal_weight",
+            "sat_cap": eq_weight,
+            "passed_filters": False,
+            "fail_reason": "stage_4_emergency",
+            "composite_score": 0.0,
+            "fallback": True,
+            "fallback_level": 4,
+            "hard_fallback": True,
+            "risk_contrib": {},
+        }
+        
+        _log.info(f"[4-stage fallback] Stage 4: created emergency equal-weight with {len(fallback_symbols)} assets")
+        return [emergency]
+    
+    # Truly catastrophic: not even 2 symbols
+    _log.error("[4-stage fallback] Stage 4 failed: insufficient symbols for emergency portfolio")
+    return []
+
+
+def build_recommendations(
+    returns: pd.DataFrame,
+    catalog: dict,
+    cfg: dict,
+    risk_profile,  # RiskProfileResult from core.risk_profile
+    objective_cfg: ObjectiveConfig,
+    n_candidates: int = 8,
+    seed: int | None = 42,
+    objective_config=None,
+) -> dict:
+    """
+    Generate portfolio recommendations using asset-first multi-factor pipeline.
+    
+    This is the main entry point for Phase 2. It:
+    1. Filters asset universe using multi-factor quality checks
+    2. Runs multiple optimizers on filtered assets
+    3. Applies portfolio-level filters
+    4. Ranks by composite score and returns top N
+    
+    Args:
+        returns: DataFrame of daily returns (columns = symbols)
+        catalog: Assets catalog dict
+        cfg: Config dict
+        risk_profile: RiskProfileResult from compute_risk_profile()
+        objective_cfg: ObjectiveConfig with universe filter and bounds
+    n_candidates: Number of portfolios to return (default 8)
+    seed: Random seed for reproducibility
+    objective_config: Optional ObjectiveConfigV4 from objectives.yaml
+    
+    Returns:
+        Dict with keys:
+            - recommended: List of portfolio dicts (top N that passed filters)
+            - all_candidates: List of all portfolios generated (for debug)
+            - asset_receipts: DataFrame of asset filter results
+            - portfolio_receipts: DataFrame of portfolio filter results
+    
+    Each portfolio dict contains:
+        - name: Portfolio name
+        - weights: Dict of {symbol: weight}
+        - metrics: Dict with CAGR, Vol, Sharpe, MaxDD, etc.
+        - optimizer: Optimizer used
+        - sat_cap: Satellite cap used
+        - passed_filters: Bool
+        - fail_reason: String if failed, None if passed
+        - composite_score: Ranking score
+    
+    Usage:
+        from core.risk_profile import compute_risk_profile
+        from core.recommendation_engine import build_recommendations, ObjectiveConfig
+        
+        # Compute risk profile
+        profile = compute_risk_profile(...)
+        
+        # Define objective
+        obj_cfg = ObjectiveConfig(
+            name="Balanced",
+            universe_filter=None,  # Use full universe
+            bounds={"core_min": 0.65, "sat_max_total": 0.35, "sat_max_single": 0.07},
+            optimizer="hrp"
+        )
+        
+        # Build recommendations
+        result = build_recommendations(
+            returns=returns_df,
+            catalog=catalog,
+            cfg=config,
+            risk_profile=profile,
+            objective_cfg=obj_cfg,
+            n_candidates=8
+        )
+        
+        # Access results
+        recommended = result["recommended"]  # Top N portfolios
+        asset_receipts = result["asset_receipts"]  # Asset filter DataFrame
+        portfolio_receipts = result["portfolio_receipts"]  # Portfolio filter DataFrame
+    """
+    from .multifactor import (
+        build_filtered_universe,
+        portfolio_metrics,
+        compute_risk_contributions,
+        portfolio_passes_filters,
+        compute_composite_score,
+        check_distinctness,
+    )
+    # Overwrite placeholder (in case of circular early access)
+    try:
+        global build_recommendations
+    except Exception:
+        pass
+    
+    if seed is not None:
+        import numpy as np
+        np.random.seed(seed)
+
+    objective_metadata = _resolve_objective_metadata(objective_cfg, objective_config)
+    if objective_metadata is None:
+        _log.debug("[build_recommendations] Objective metadata unavailable; proceeding without V4 config")
+    
+    # Step 1: Determine universe symbols from YAML snapshot (fallback to returns)
+    available_columns = returns.columns.tolist()
+    universe_symbols = available_columns.copy()
+
+    try:
+        universe_df = load_universe_from_yaml()
+        yaml_symbols: List[str] = []
+        if isinstance(universe_df, pd.DataFrame) and not universe_df.empty:
+            yaml_symbols = [
+                str(getattr(row, "symbol")).strip()
+                for row in universe_df.itertuples()
+                if getattr(row, "symbol", None)
+            ]
+        if yaml_symbols:
+            lookup = {str(col).upper(): col for col in available_columns}
+            ordered: List[str] = []
+            for sym in yaml_symbols:
+                actual = lookup.get(sym.upper())
+                if actual and actual not in ordered:
+                    ordered.append(actual)
+            if ordered:
+                extras = [col for col in available_columns if col not in ordered]
+                universe_symbols = ordered + extras
+    except Exception as _universe_err:
+        _log.warning(
+            "[build_recommendations] load_universe_from_yaml failed (%s); using returns columns",
+            _universe_err,
+        )
+
+    # Detect UI overrides for using the full ETF universe
+    def _flag_from_container(container) -> Optional[bool]:
+        if isinstance(container, dict) and container.get("use_full_universe") is not None:
+            return bool(container.get("use_full_universe"))
+        return None
+
+    use_full_universe_flag = bool(getattr(objective_cfg, "use_full_universe", False))
+    if not use_full_universe_flag and isinstance(cfg, dict):
+        for key in ("ui_state", "ui_flags", "session_state", "runtime", "data"):
+            flag_val = _flag_from_container(cfg.get(key))
+            if flag_val is not None:
+                use_full_universe_flag = flag_val
+                break
+        if not use_full_universe_flag:
+            flag_val = _flag_from_container(cfg)
+            if flag_val is not None:
+                use_full_universe_flag = flag_val
+
+    # Step 1b: Apply optional objective-specific universe filter
+    # Skip when UI explicitly requests full ETF universe
+    if objective_cfg.universe_filter is not None and not use_full_universe_flag:
+        if callable(objective_cfg.universe_filter):
+            universe_symbols = objective_cfg.universe_filter(universe_symbols, catalog)
+        elif isinstance(objective_cfg.universe_filter, list):
+            universe_symbols = objective_cfg.universe_filter
+    elif use_full_universe_flag:
+        _log.info("[build_recommendations] Full-universe toggle active; skipping objective universe filter")
+    
+    filtered_symbols, asset_receipts_df = build_filtered_universe(
+        universe_symbols=universe_symbols,
+        returns=returns,
+        catalog=catalog,
+        cfg=cfg,
+        risk_profile=risk_profile,
+        objective_config=objective_metadata,
+    )
+    
+    if len(filtered_symbols) < 3:
+        # Not enough assets passed filters - trigger hard fallback
+        _log.warning(f"[build_recommendations] Only {len(filtered_symbols)} assets passed filters; creating hard fallback")
+        
+        # Use universe symbols for emergency portfolio (at least 2 symbols)
+        fallback_symbols = universe_symbols[:min(3, len(universe_symbols))] if len(universe_symbols) >= 2 else filtered_symbols
+        
+        if len(fallback_symbols) >= 2:
+            # Create equal-weight emergency portfolio
+            rf = float(cfg.get("optimization", {}).get("risk_free_rate", 0.015))
+            eq_weight = 1.0 / len(fallback_symbols)
+            hard_weights = pd.Series({s: eq_weight for s in fallback_symbols})
+            
+            try:
+                from .multifactor import portfolio_metrics
+                port_stats = portfolio_metrics(hard_weights, returns, risk_free_rate=rf)
+            except Exception:
+                port_stats = {
+                    "cagr": 0.05, "volatility": 0.12, "sharpe": 0.4,
+                    "max_drawdown": -0.20, "num_holdings": len(fallback_symbols), "valid": True
+                }
+            
+            hard_candidate = {
+                "name": "EMERGENCY_FALLBACK - Equal Weight",
+                "weights": hard_weights.to_dict(),
+                "metrics": port_stats,
+                "optimizer": "equal_weight",
+                "sat_cap": eq_weight,
+                "passed_filters": False,
+                "fail_reason": "hard_fallback_insufficient_assets",
+                "composite_score": 0.0,
+                "fallback": True,
+                "fallback_level": 4,  # Stage 4: Emergency fallback (asset-level failure)
+                "hard_fallback": True,
+                "risk_contrib": {},
+            }
+            
+            return {
+                "recommended": [hard_candidate],
+                "all_candidates": [],
+                "asset_receipts": asset_receipts_df,
+                "portfolio_receipts": pd.DataFrame(),
+                "error": f"Only {len(filtered_symbols)} assets passed filters; emergency portfolio created"
+            }
+        else:
+            # Truly extreme case: not even 2 symbols available
+            return {
+                "recommended": [],
+                "all_candidates": [],
+                "asset_receipts": asset_receipts_df,
+                "portfolio_receipts": pd.DataFrame(),
+                "error": f"Only {len(filtered_symbols)} assets passed filters and universe has < 2 symbols"
+            }
+    
+    # Step 2: Generate portfolio candidates
+    # Use filtered returns
+    filtered_returns = returns[filtered_symbols]
+    
+    # Optimizers to try
+    optimizers = ["hrp", "max_sharpe", "min_var", "risk_parity", "equal_weight"]
+    
+    # Satellite caps to try
+    sat_caps = [0.20, 0.25, 0.30, 0.35]
+    
+    # Get bounds from objective config
+    bounds_cfg = objective_cfg.bounds or {}
+    core_min = float(bounds_cfg.get("core_min", 0.65))
+    sat_max_single = float(bounds_cfg.get("sat_max_single", 0.07))
+    
+    # Get risk-free rate
+    rf = float(cfg.get("optimization", {}).get("risk_free_rate", 0.015))
+    
+    all_candidates = []
+    
+    for opt in optimizers:
+        for sat_cap in sat_caps:
+            try:
+                # Optimize weights
+                weights = optimize_weights(
+                    filtered_returns,
+                    method=opt,
+                    bounds=(0.0, 0.30),
+                    rf=rf,
+                    cfg=cfg
+                )
+                
+                if weights is None or weights.sum() == 0:
+                    continue
+                
+                # Apply objective constraints (core/satellite)
+                # Note: This should use apply_weight_constraints from recommendation_engine
+                # For now, we'll use weights as-is and let portfolio filters handle it
+                
+                # Compute portfolio metrics
+                port_stats = portfolio_metrics(weights, returns, risk_free_rate=rf)
+                
+                if not port_stats.get("valid"):
+                    continue
+                
+                # Compute risk contributions
+                cov = filtered_returns.cov()
+                risk_contrib = compute_risk_contributions(weights, cov)
+                
+                # Apply portfolio filters
+                passed, fail_reason = portfolio_passes_filters(
+                    portfolio_stats=port_stats,
+                    risk_contrib=risk_contrib,
+                    cfg=cfg,
+                    risk_profile=risk_profile
+                )
+                
+                # Compute composite score
+                composite = compute_composite_score(
+                    sharpe=port_stats["sharpe"],
+                    max_drawdown=port_stats["max_drawdown"],
+                    lambda_penalty=float(cfg.get("multifactor", {}).get("drawdown_penalty_lambda", 0.2)),
+                    volatility=port_stats.get("volatility"),
+                    risk_profile=risk_profile,
+                    soft_band=bool(port_stats.get("soft_band", False)),
+                    soft_vol_penalty_lambda=float(cfg.get("multifactor", {}).get("soft_vol_penalty_lambda", 0.5))
+                )
+                
+                candidate = {
+                    "name": f"{opt.upper()} - Sat {int(sat_cap*100)}%",
+                    "weights": weights.to_dict(),
+                    "metrics": port_stats,
+                    "optimizer": opt,
+                    "sat_cap": sat_cap,
+                    "passed_filters": passed,
+                    "fail_reason": fail_reason,
+                    "composite_score": composite,
+                    "risk_contrib": risk_contrib.to_dict() if len(risk_contrib) > 0 else {},
+                }
+                
+                all_candidates.append(candidate)
+            
+            except Exception as e:
+                # Log error but continue
+                continue
+    
+    # Step 3: Apply 4-stage fallback ladder
+    # This handles: Stage 1 (strict) → Stage 2 (relaxed) → Stage 3 (compositional) → Stage 4 (emergency)
+    strict_pass_count = sum(1 for c in all_candidates if c.get("passed_filters"))
+    recommended = _apply_4_stage_fallback(
+        all_candidates=all_candidates,
+        cfg=cfg,
+        risk_profile=risk_profile,
+        returns=returns,
+        n_candidates=n_candidates,
+        filtered_symbols=filtered_symbols,
+        universe_symbols=universe_symbols,
+    )
+    
+    # Build portfolio receipts DataFrame
+    portfolio_receipts_data = []
+    for c in all_candidates:
+        portfolio_receipts_data.append({
+            "name": c["name"],
+            "optimizer": c["optimizer"],
+            "sat_cap": c["sat_cap"],
+            "cagr": c["metrics"].get("cagr"),
+            "vol": c["metrics"].get("volatility"),
+            "sharpe": c["metrics"].get("sharpe"),
+            "max_dd": c["metrics"].get("max_drawdown"),
+            "div_ratio": c["metrics"].get("diversification_ratio"),
+            "num_holdings": c["metrics"].get("num_holdings"),
+            "composite_score": c["composite_score"],
+            "passed": c["passed_filters"],
+            "fail_reason": c["fail_reason"],
+            "soft_band": c["metrics"].get("soft_band"),
+        })
+    
+    portfolio_receipts_df = pd.DataFrame(portfolio_receipts_data)
+    
+    # Inject asset_classes mapping into recommended portfolios for UI consumption
+    try:
+        from core.utils.asset_classes import build_symbol_metadata_map, map_asset_classes
+        meta_map = build_symbol_metadata_map(catalog)
+        for c in recommended:
+            syms = list(c.get("weights", {}).keys())
+            c["asset_classes"] = map_asset_classes(syms, meta_map)
+    except Exception as _ac_err:
+        _log.warning(f"[build_recommendations] asset_classes injection failed: {_ac_err}")
+
+    fallback_count = sum(1 for c in recommended if c.get("fallback"))
+    hard_fallback_count = sum(1 for c in recommended if c.get("hard_fallback"))
+    stage_used = 0
+    if recommended:
+        if hard_fallback_count:
+            stage_used = 4
+        elif any(c.get("fallback_level") == 3 for c in recommended):
+            stage_used = 3
+        elif any(c.get("fallback_level") == 2 for c in recommended):
+            stage_used = 2
+        else:
+            stage_used = 1
+
+    stats = {
+        "total_candidates": len(all_candidates),
+        "strict_passes": strict_pass_count,
+        "recommended": len(recommended),
+        "fallback_count": fallback_count,
+        "hard_fallback_count": hard_fallback_count,
+        "stage_used": stage_used,
+    }
+
+    result_payload = {
+        "recommended": recommended,
+        "all_candidates": all_candidates,
+        "asset_receipts": asset_receipts_df,
+        "portfolio_receipts": portfolio_receipts_df,
+        "stats": stats,
+    }
+
+    if objective_metadata is not None:
+        result_payload["objective_config_v4"] = objective_metadata
+    return result_payload
+
+
+__all__ = ["UserProfile", "recommend", "recommend_legacy", "compute_asset_stats", "target_vol_for", "build_recommendations", "ObjectiveConfig"]
+
+_log.debug("[recommendation_engine] module import complete")

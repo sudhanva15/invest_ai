@@ -4,10 +4,14 @@ import time
 import pandas as pd
 from typing import Callable, Optional
 
+from core.data_sources.yf_source import fetch_yfinance_history
+from core.utils.env_tools import is_demo_mode
+
 # Stooq symbol mapping (US suffixed tickers)
 STOOQ_MAP = {"SPY":"SPY.US","QQQ":"QQQ.US","TLT":"TLT.US","IEF":"IEF.US","GLD":"GLD.US"}
 
 INVEST_AI_DEBUG = os.environ.get("INVEST_AI_DEBUG") == "1"
+DEMO_MODE = is_demo_mode()
 
 def _dbg(*a):
     if INVEST_AI_DEBUG:
@@ -98,6 +102,8 @@ def _stooq_fetch(symbol, start=None, end=None, force=False):
 
 def _fetch_tiingo_history(symbol, start=None, end=None):
     _dbg(f"[router] tiingo({symbol}, start={start}, end={end})")
+    if DEMO_MODE:
+        return None
     try:
         from core.data_sources.backfill_tiingo import fetch_tiingo_history
         df = fetch_tiingo_history(symbol, start=start, end=end)
@@ -111,24 +117,11 @@ from core.utils.env_tools import load_config
 from pathlib import Path
 
 def _yfinance_fetch(symbol, start=None, end=None):
-    try:
-        import yfinance as yf
-    except Exception:
+    if DEMO_MODE:
         return None
-    params = {}
-    if start and start not in ("earliest", ""):
-        params["start"] = str(start)
-    if end:
-        params["end"] = str(end)
-    try:
-        df = yf.download(symbol, auto_adjust=False, progress=False, **params)
-    except Exception:
+    df = fetch_yfinance_history(symbol, start_date=start, end_date=end)
+    if df is None or df.empty:
         return None
-    if df is None or len(df) == 0:
-        return None
-    df = df.reset_index().rename(columns={
-        "Date":"date","Open":"open","High":"high","Low":"low","Close":"close","Adj Close":"adj_close","Volume":"volume"
-    })
     return df
 
 def fetch_union(
@@ -146,10 +139,19 @@ def fetch_union(
         use_yf = bool(cfg.get("apis", {}).get("use_yfinance_fallback", cfg.get("data", {}).get("use_yfinance_fallback", False)))
     except Exception:
         use_yf = False
+    if DEMO_MODE:
+        use_yf = False
     providers: list[tuple[str, Callable]] = [
         ("stooq",  lambda: _stooq_fetch(symbol, start=start, end=end, force=force)),
-        ("tiingo", lambda: _fetch_tiingo_history(symbol, start=start, end=end)),
     ]
+    if not DEMO_MODE:
+        # Conditionally include Tiingo (skip if rate-limit previously hit and skip flag enabled)
+        try:
+            from core.data_sources.tiingo import tiingo_rate_limited
+            if not (tiingo_rate_limited() and os.getenv("TIINGO_SKIP_ON_RATE_LIMIT", "1") == "1"):
+                providers.append(("tiingo", lambda: _fetch_tiingo_history(symbol, start=start, end=end)))
+        except Exception:
+            providers.append(("tiingo", lambda: _fetch_tiingo_history(symbol, start=start, end=end)))
     if use_yf:
         providers.append(("yfinance", lambda: _yfinance_fetch(symbol, start=start, end=end)))
     merged: pd.DataFrame | None = None

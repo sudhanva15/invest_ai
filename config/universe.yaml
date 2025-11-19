@@ -1,0 +1,360 @@
+# Investment Universe Configuration
+# Defines the complete universe of assets available for portfolio construction
+# This file is the single source of truth for asset metadata
+
+# Universe Version
+version: "1.0.0"
+last_updated: "2025-11-18"
+
+# Asset Universe
+# Each asset must have: symbol, name, asset_class, subtype, region, is_etf, provider
+assets:
+  # === EQUITIES - US BROAD ===
+  - symbol: SPY
+    name: "S&P 500 ETF"
+    asset_class: equity
+    subtype: broad_equity
+    region: US
+    is_etf: true
+    provider: stooq
+    core_satellite: core
+    max_weight: 0.30
+    min_history_years: 15
+    
+  - symbol: VTI
+    name: "Total US Market"
+    asset_class: equity
+    subtype: broad_equity
+    region: US
+    is_etf: true
+    provider: stooq
+    core_satellite: core
+    max_weight: 0.30
+    min_history_years: 15
+    
+  - symbol: IVV
+    name: "iShares Core S&P 500"
+    asset_class: equity
+    subtype: broad_equity
+    region: US
+    is_etf: true
+    provider: stooq
+    core_satellite: core
+    max_weight: 0.30
+    min_history_years: 15
+    
+  - symbol: QQQ
+    name: "Nasdaq 100"
+    asset_class: equity
+    subtype: tech_equity
+    region: US
+    is_etf: true
+    provider: stooq
+    core_satellite: satellite
+    max_weight: 0.20
+    min_history_years: 10
+    
+  - symbol: IWM
+    name: "Russell 2000 Small Cap"
+    asset_class: equity
+    subtype: small_cap
+    region: US
+    is_etf: true
+    provider: stooq
+    core_satellite: satellite
+    max_weight: 0.15
+    min_history_years: 10
+    
+  - symbol: DIA
+    name: "Dow Jones 30"
+    asset_class: equity
+    subtype: broad_equity
+    region: US
+    is_etf: true
+    provider: stooq
+    core_satellite: satellite
+    max_weight: 0.20
+    min_history_years: 10
+    
+  # === EQUITIES - US DIVIDEND ===
+  - symbol: SCHD
+    name: "Schwab US Dividend Equity"
+    asset_class: equity
+    subtype: dividend_equity
+    region: US
+    is_etf: true
+    provider: stooq
+    core_satellite: core
+    max_weight: 0.25
+    min_history_years: 8
+    
+  - symbol: VYM
+    name: "Vanguard High Dividend Yield"
+    asset_class: equity
+    subtype: dividend_equity
+    region: US
+    is_etf: true
+    provider: stooq
+    core_satellite: core
+    max_weight: 0.25
+    min_history_years: 10
+    
+  # === EQUITIES - US SECTOR ===
+  - symbol: XLF
+    name: "Financials Select Sector"
+    asset_class: equity
+    subtype: sector_equity
+    region: US
+    is_etf: true
+    provider: stooq
+    core_satellite: satellite
+    max_weight: 0.15
+    min_history_years: 10
+    
+  - symbol: XLK
+    name: "Technology Select Sector"
+    asset_class: equity
+    subtype: sector_equity
+    region: US
+    is_etf: true
+    provider: stooq
+    core_satellite: satellite
+    max_weight: 0.15
+    min_history_years: 10
+    
+  - symbol: XLV
+    name: "Health Care Select Sector"
+    asset_class: equity
+    subtype: sector_equity
+    region: US
+    is_etf: true
+    provider: stooq
+    core_satellite: satellite
+    max_weight: 0.15
+    min_history_years: 10
+    
+  - symbol: XLE
+    name: "Energy Select Sector"
+    asset_class: equity
+    subtype: sector_equity
+    region: US
+    is_etf: true
+    provider: stooq
+    core_satellite: satellite
+    max_weight: 0.15
+    min_history_years: 10
+    
+  # === EQUITIES - INTERNATIONAL ===
+  - symbol: VEA
+    name: "Developed ex-US"
+    asset_class: equity
+    subtype: intl_developed
+    region: Intl_Dev
+    is_etf: true
+    provider: stooq
+    core_satellite: core
+    max_weight: 0.25
+    min_history_years: 10
+    
+  - symbol: EFA
+    name: "iShares MSCI EAFE"
+    asset_class: equity
+    subtype: intl_developed
+    region: Intl_Dev
+    is_etf: true
+    provider: stooq
+    core_satellite: core
+    max_weight: 0.25
+    min_history_years: 10
+    
+  - symbol: VWO
+    name: "Emerging Markets"
+    asset_class: equity
+    subtype: emerging_markets
+    region: EM
+    is_etf: true
+    provider: stooq
+    core_satellite: satellite
+    max_weight: 0.20
+    min_history_years: 10
+    
+  - symbol: EEM
+    name: "iShares MSCI Emerging Markets"
+    asset_class: equity
+    subtype: emerging_markets
+    region: EM
+    is_etf: true
+    provider: stooq
+    core_satellite: satellite
+    max_weight: 0.20
+    min_history_years: 10
+    
+  # === BONDS - AGGREGATE ===
+  - symbol: BND
+    name: "Vanguard Total Bond Market"
+    asset_class: bond
+    subtype: aggregate_bond
+    region: US
+    is_etf: true
+    provider: stooq
+    core_satellite: core
+    max_weight: 0.50
+    min_history_years: 10
+    
+  - symbol: AGG
+    name: "iShares Core US Aggregate Bond"
+    asset_class: bond
+    subtype: aggregate_bond
+    region: US
+    is_etf: true
+    provider: stooq
+    core_satellite: core
+    max_weight: 0.50
+    min_history_years: 10
+    
+  # === BONDS - TREASURY ===
+  - symbol: SHY
+    name: "iShares 1-3 Year Treasury"
+    asset_class: bond
+    subtype: treasury_short
+    region: US
+    is_etf: true
+    provider: stooq
+    core_satellite: core
+    max_weight: 0.40
+    min_history_years: 10
+    
+  - symbol: IEF
+    name: "iShares 7-10 Year Treasury"
+    asset_class: bond
+    subtype: treasury_intermediate
+    region: US
+    is_etf: true
+    provider: stooq
+    core_satellite: core
+    max_weight: 0.50
+    min_history_years: 10
+    
+  - symbol: TLT
+    name: "iShares 20+ Year Treasury"
+    asset_class: bond
+    subtype: treasury_long
+    region: US
+    is_etf: true
+    provider: stooq
+    core_satellite: core
+    max_weight: 0.60
+    min_history_years: 10
+    
+  # === BONDS - CORPORATE ===
+  - symbol: LQD
+    name: "iShares iBoxx $ IG Corporate"
+    asset_class: bond
+    subtype: corporate_ig
+    region: US
+    is_etf: true
+    provider: stooq
+    core_satellite: core
+    max_weight: 0.40
+    min_history_years: 10
+    
+  - symbol: HYG
+    name: "iShares iBoxx $ High Yield"
+    asset_class: bond
+    subtype: high_yield
+    region: US
+    is_etf: true
+    provider: stooq
+    core_satellite: satellite
+    max_weight: 0.20
+    min_history_years: 10
+    
+  # === REITS ===
+  - symbol: VNQ
+    name: "Vanguard Real Estate"
+    asset_class: reit
+    subtype: us_reit
+    region: US
+    is_etf: true
+    provider: stooq
+    core_satellite: satellite
+    max_weight: 0.20
+    min_history_years: 10
+    
+  # === COMMODITIES ===
+  - symbol: GLD
+    name: "SPDR Gold Shares"
+    asset_class: commodity
+    subtype: gold
+    region: Global
+    is_etf: true
+    provider: stooq
+    core_satellite: satellite
+    max_weight: 0.20
+    min_history_years: 10
+    
+  - symbol: DBC
+    name: "Invesco DB Commodity Index"
+    asset_class: commodity
+    subtype: broad_commodity
+    region: Global
+    is_etf: true
+    provider: stooq
+    core_satellite: satellite
+    max_weight: 0.15
+    min_history_years: 10
+    
+  - symbol: GSG
+    name: "iShares S&P GSCI Commodity"
+    asset_class: commodity
+    subtype: broad_commodity
+    region: Global
+    is_etf: true
+    provider: stooq
+    core_satellite: satellite
+    max_weight: 0.15
+    min_history_years: 10
+    
+  # === CASH ===
+  - symbol: BIL
+    name: "SPDR 1-3 Month T-Bill"
+    asset_class: cash
+    subtype: cash_equivalent
+    region: US
+    is_etf: true
+    provider: stooq
+    core_satellite: core
+    max_weight: 0.50
+    min_history_years: 10
+
+# Asset Class Metadata
+asset_class_info:
+  equity:
+    label: "Equities"
+    description: "Stocks and equity ETFs"
+    typical_return: 0.09
+    typical_volatility: 0.18
+    
+  bond:
+    label: "Bonds"
+    description: "Fixed income securities"
+    typical_return: 0.04
+    typical_volatility: 0.05
+    
+  reit:
+    label: "REITs"
+    description: "Real Estate Investment Trusts"
+    typical_return: 0.08
+    typical_volatility: 0.22
+    
+  commodity:
+    label: "Commodities"
+    description: "Gold, energy, and broad commodities"
+    typical_return: 0.05
+    typical_volatility: 0.20
+    
+  cash:
+    label: "Cash"
+    description: "Cash equivalents and T-bills"
+    typical_return: 0.02
+    typical_volatility: 0.01

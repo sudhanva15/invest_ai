@@ -26,6 +26,26 @@ optimization:
   max_weight: 0.30
   risk_free_rate: 0.015
 
+multifactor:
+  # Asset-level filters
+  min_asset_sharpe: -0.5          # Min Sharpe for any asset (allows some negative but not terrible)
+  max_asset_vol_multiplier: 2.0   # Max vol = risk_profile.band_max_vol * this multiplier
+  max_asset_drawdown: -0.60       # Max acceptable asset drawdown (-60%)
+  
+  # Portfolio-level filters
+  min_portfolio_sharpe: 0.3       # Min portfolio Sharpe ratio
+  max_portfolio_drawdown: -0.50   # Max acceptable portfolio drawdown (-50%)
+  max_risk_contribution: 0.40     # Max % of risk from single asset (40%)
+  min_diversification_ratio: 1.2  # Min diversification ratio
+  min_holdings: 3                 # Min number of holdings
+  
+  # Scoring & ranking
+  drawdown_penalty_lambda: 0.2    # Penalty weight for drawdown in composite score
+  distinctness_threshold: 0.995   # Cosine similarity threshold for duplicate detection
+  # Soft volatility band parameters (Phase 3)
+  vol_soft_lower_factor: 0.6      # Soft zone lower bound = band_min_vol * factor
+  soft_vol_penalty_lambda: 0.5    # Penalty intensity for gap inside soft zone
+
 universe:
   # Quality thresholds balanced for reliability with current provider mix
   # Stooq cache provides 15y+ history; accepts symbols without volume data

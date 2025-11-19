@@ -1,0 +1,276 @@
+# Investment Objectives Configuration
+# Defines declarative objectives with target return/vol bands and asset class constraints
+# Used for risk-objective mapping and portfolio construction
+
+# Configuration Version
+version: "1.0.0"
+last_updated: "2025-11-18"
+
+# Investment Objectives
+# Each objective defines:
+#   - Target return and volatility bands (annual)
+#   - Asset class allocation constraints (min/max percentages)
+#   - Risk score affinity (which TRUE_RISK scores match well)
+objectives:
+  
+  CONSERVATIVE:
+    label: "Conservative"
+    description: "Capital preservation with modest growth. Low volatility."
+    
+    # Risk score affinity (0-100 scale)
+    risk_score_min: 0
+    risk_score_max: 35
+    risk_score_optimal: 20
+    
+    # Target return/volatility (annual, decimal)
+    target_return:
+      min: 0.03
+      max: 0.06
+      target: 0.045
+    
+    target_volatility:
+      min: 0.05
+      max: 0.10
+      target: 0.075
+    
+    # Asset class constraints (as % of portfolio)
+    asset_class_bands:
+      equity:
+        min: 0.15
+        max: 0.35
+      bond:
+        min: 0.45
+        max: 0.70
+      reit:
+        min: 0.00
+        max: 0.10
+      commodity:
+        min: 0.00
+        max: 0.10
+      cash:
+        min: 0.05
+        max: 0.30
+    
+    # Portfolio construction hints
+    min_holdings: 6
+    max_holdings: 15
+    prefer_core_assets: true
+  
+  
+  BALANCED:
+    label: "Balanced"
+    description: "Moderate growth with balanced risk. Medium volatility."
+    
+    # Risk score affinity
+    risk_score_min: 30
+    risk_score_max: 65
+    risk_score_optimal: 50
+    
+    # Target return/volatility
+    target_return:
+      min: 0.05
+      max: 0.09
+      target: 0.07
+    
+    target_volatility:
+      min: 0.10
+      max: 0.16
+      target: 0.13
+    
+    # Asset class constraints
+    asset_class_bands:
+      equity:
+        min: 0.40
+        max: 0.70
+      bond:
+        min: 0.20
+        max: 0.50
+      reit:
+        min: 0.00
+        max: 0.15
+      commodity:
+        min: 0.00
+        max: 0.10
+      cash:
+        min: 0.00
+        max: 0.20
+    
+    # Portfolio construction hints
+    min_holdings: 8
+    max_holdings: 20
+    prefer_core_assets: false
+  
+  
+  GROWTH:
+    label: "Growth"
+    description: "Aggressive growth with higher volatility tolerance."
+    
+    # Risk score affinity
+    risk_score_min: 60
+    risk_score_max: 100
+    risk_score_optimal: 80
+    
+    # Target return/volatility
+    target_return:
+      min: 0.08
+      max: 0.13
+      target: 0.105
+    
+    target_volatility:
+      min: 0.14
+      max: 0.22
+      target: 0.18
+    
+    # Asset class constraints
+    asset_class_bands:
+      equity:
+        min: 0.65
+        max: 0.90
+      bond:
+        min: 0.05
+        max: 0.25
+      reit:
+        min: 0.00
+        max: 0.20
+      commodity:
+        min: 0.00
+        max: 0.15
+      cash:
+        min: 0.00
+        max: 0.10
+    
+    # Portfolio construction hints
+    min_holdings: 8
+    max_holdings: 20
+    prefer_core_assets: false
+  
+  
+  GROWTH_PLUS_INCOME:
+    label: "Growth + Income"
+    description: "Growth with dividend/income focus. Moderate-high volatility."
+    
+    # Risk score affinity
+    risk_score_min: 50
+    risk_score_max: 85
+    risk_score_optimal: 65
+    
+    # Target return/volatility
+    target_return:
+      min: 0.06
+      max: 0.11
+      target: 0.085
+    
+    target_volatility:
+      min: 0.12
+      max: 0.19
+      target: 0.155
+    
+    # Asset class constraints
+    asset_class_bands:
+      equity:
+        min: 0.50
+        max: 0.75
+      bond:
+        min: 0.15
+        max: 0.40
+      reit:
+        min: 0.05
+        max: 0.25
+      commodity:
+        min: 0.00
+        max: 0.10
+      cash:
+        min: 0.00
+        max: 0.15
+    
+    # Portfolio construction hints
+    min_holdings: 10
+    max_holdings: 20
+    prefer_core_assets: false
+  
+  
+  AGGRESSIVE:
+    label: "Aggressive"
+    description: "Maximum growth potential. High volatility."
+    
+    # Risk score affinity
+    risk_score_min: 75
+    risk_score_max: 100
+    risk_score_optimal: 90
+    
+    # Target return/volatility
+    target_return:
+      min: 0.10
+      max: 0.16
+      target: 0.13
+    
+    target_volatility:
+      min: 0.18
+      max: 0.28
+      target: 0.23
+    
+    # Asset class constraints
+    asset_class_bands:
+      equity:
+        min: 0.75
+        max: 0.95
+      bond:
+        min: 0.00
+        max: 0.15
+      reit:
+        min: 0.00
+        max: 0.15
+      commodity:
+        min: 0.00
+        max: 0.15
+      cash:
+        min: 0.00
+        max: 0.05
+    
+    # Portfolio construction hints
+    min_holdings: 6
+    max_holdings: 18
+    prefer_core_assets: false
+
+
+# Global defaults (used when objective not specified)
+defaults:
+  target_return_fallback: 0.07
+  target_volatility_fallback: 0.15
+  min_holdings: 8
+  max_holdings: 20
+  
+  # Default asset class bands (very broad, used as last resort)
+  asset_class_bands:
+    equity:
+      min: 0.30
+      max: 0.80
+    bond:
+      min: 0.10
+      max: 0.60
+    reit:
+      min: 0.00
+      max: 0.20
+    commodity:
+      min: 0.00
+      max: 0.15
+    cash:
+      min: 0.00
+      max: 0.30
+
+
+# Risk adjustment rules
+# These modify bands based on how far TRUE_RISK is from objective's optimal score
+risk_adjustment:
+  # When risk_score is below optimal, reduce return/vol targets
+  below_optimal:
+    return_multiplier: 0.85  # 15% reduction in target return
+    volatility_multiplier: 0.80  # 20% reduction in max volatility
+  
+  # When risk_score is above optimal, increase return/vol targets
+  above_optimal:
+    return_multiplier: 1.15  # 15% increase in target return
+    volatility_multiplier: 1.20  # 20% increase in max volatility
+  
+  # Smooth transition zone (within ±15 points of optimal)
+  transition_zone: 15

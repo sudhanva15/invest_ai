@@ -2,6 +2,11 @@ from __future__ import annotations
 import os
 from typing import Callable, Optional, Tuple
 import pandas as pd
+from core.utils.env_tools import is_demo_mode
+
+from core.data_sources.yf_source import fetch_yfinance_history
+
+DEMO_MODE = is_demo_mode()
 
 # Lightweight provider wrappers so we can hand back simple callables
 def _stooq_fetch(symbol: str, start: Optional[str] = None, end: Optional[str] = None, force: bool = False):
@@ -12,27 +17,17 @@ def _stooq_fetch(symbol: str, start: Optional[str] = None, end: Optional[str] = 
         return stooq.fetch_daily(symbol)
 
 def _tiingo_fetch(symbol: str, start: Optional[str] = None, end: Optional[str] = None, force: bool = False):
+    if DEMO_MODE:
+        return pd.DataFrame()
     from core.data_sources.backfill_tiingo import fetch_tiingo_history
     return fetch_tiingo_history(symbol, start=start, end=end)
 
 def _yfinance_fetch(symbol: str, start: Optional[str] = None, end: Optional[str] = None, force: bool = False):
-    # used as a late fallback only
-    import datetime as _dt
-    import yfinance as yf
-    params = {}
-    if start and start not in ("earliest", ""):
-        params["start"] = str(start)
-    if end:
-        params["end"] = str(end)
-    try:
-        df = yf.download(symbol, auto_adjust=False, progress=False, **params)
-    except Exception:
+    if DEMO_MODE:
+        return pd.DataFrame()
+    df = fetch_yfinance_history(symbol, start_date=start, end_date=end)
+    if df is None or df.empty:
         return None
-    if df is None or len(df) == 0:
-        return None
-    df = df.reset_index().rename(columns={
-        "Date":"date","Open":"open","High":"high","Low":"low","Close":"close","Adj Close":"adj_close","Volume":"volume"
-    })
     return df
 
 def detect_provider_env() -> dict:
@@ -51,11 +46,25 @@ def detect_provider_env() -> dict:
     }
 
 def get_ordered_providers() -> list[Callable]:
+    """Return providers in preferred precedence order.
+
+    Architecture V3: Stooq primary, Tiingo backfill for depth/gaps, yfinance late fallback.
+    If a Tiingo rate-limit has been detected we skip adding Tiingo to avoid hammering.
     """
-    Provider precedence: Stooq primary, Tiingo backfill (union merge). yfinance optional/legacy.
-    Each provider returns a pandas.DataFrame with at least 'date' and 'close'/'adj_close'.
-    """
-    return [_tiingo_fetch, _stooq_fetch, _yfinance_fetch]
+    providers: list[Callable] = []
+    # Stooq primary
+    providers.append(_stooq_fetch)
+    if not DEMO_MODE:
+        # Conditional Tiingo backfill
+        try:
+            from core.data_sources.tiingo import tiingo_rate_limited
+            if not tiingo_rate_limited() or os.getenv("TIINGO_SKIP_ON_RATE_LIMIT", "1") != "1":
+                providers.append(_tiingo_fetch)
+        except Exception:
+            providers.append(_tiingo_fetch)
+        # yfinance legacy fallback
+        providers.append(_yfinance_fetch)
+    return providers
 
 def router_fetch_daily(symbol: str, asset_class: Optional[str] = None, start: Optional[str] = None, end: Optional[str] = None, force: bool = False) -> Tuple[pd.DataFrame, str]:
     """

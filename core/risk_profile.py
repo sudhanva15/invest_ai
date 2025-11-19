@@ -1,5 +1,139 @@
 from __future__ import annotations
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Any, Optional
+from dataclasses import dataclass
+
+__all__ = [
+    "RiskProfileResult",
+    "compute_risk_profile",
+    "compute_risk_score",
+    "compute_risk_score_questionnaire",
+    "compute_risk_score_facts",
+    "risk_label",
+    "map_true_risk_to_vol_band",
+    "map_true_risk_to_cagr_band",
+]
+
+
+# ============================================================================
+# RiskProfileResult – First-class risk profile container
+# ============================================================================
+
+@dataclass(frozen=True, init=False)
+class RiskProfileResult:
+    """
+    Immutable risk profile with normalized field names expected by Phase 3/4.
+
+    Required fields:
+      - questionnaire_score, facts_score, combined_score, slider_score, true_risk
+      - vol_min, vol_target, vol_max
+      - cagr_min, cagr_target (Phase 3: expected growth range)
+      - label, horizon_years, objective
+
+    Backward-compatibility properties are provided for legacy code paths:
+      - score_questionnaire, score_facts, score_combined
+      - sigma_target, band_min_vol, band_max_vol
+    """
+    questionnaire_score: float
+    facts_score: float
+    combined_score: float
+    slider_score: float
+    true_risk: float
+    vol_min: float
+    vol_target: float
+    vol_max: float
+    cagr_min: float
+    cagr_target: float
+    label: str
+    horizon_years: int
+    objective: str
+
+    def __init__(self, **kwargs: Any):  # type: ignore[no-untyped-def]
+        """Allow construction with both new and legacy field names.
+
+        Legacy names accepted:
+          - score_questionnaire -> questionnaire_score
+          - score_facts -> facts_score
+          - score_combined -> combined_score
+          - sigma_target -> vol_target
+          - band_min_vol -> vol_min
+          - band_max_vol -> vol_max
+        
+        Phase 3 additions:
+          - cagr_min, cagr_target (auto-computed from true_risk if not provided)
+        """
+        q = kwargs.get("questionnaire_score", kwargs.get("score_questionnaire"))
+        f = kwargs.get("facts_score", kwargs.get("score_facts"))
+        c = kwargs.get("combined_score", kwargs.get("score_combined"))
+        s = kwargs.get("slider_score", kwargs.get("slider_value", c))
+        tr = kwargs.get("true_risk", kwargs.get("true_risk_score", c))
+        vmin = kwargs.get("vol_min", kwargs.get("band_min_vol"))
+        vtgt = kwargs.get("vol_target", kwargs.get("sigma_target"))
+        vmax = kwargs.get("vol_max", kwargs.get("band_max_vol"))
+        cagr_min_arg = kwargs.get("cagr_min")
+        cagr_target_arg = kwargs.get("cagr_target")
+        label = kwargs.get("label", "Moderate")
+        horizon = kwargs.get("horizon_years", kwargs.get("horizon", 10))
+        objective = kwargs.get("objective", "Balanced")
+
+        # Basic validation/conversion
+        def _f(x, default=0.0):
+            try:
+                return float(x)
+            except Exception:
+                return float(default)
+        def _i(x, default=10):
+            try:
+                return int(x)
+            except Exception:
+                return int(default)
+        
+        # Compute CAGR band if not provided
+        tr_val = _f(tr, c)
+        if cagr_min_arg is None or cagr_target_arg is None:
+            cagr_min_val, cagr_target_val = map_true_risk_to_cagr_band(tr_val)
+        else:
+            cagr_min_val = _f(cagr_min_arg)
+            cagr_target_val = _f(cagr_target_arg)
+        
+        # Set attributes (frozen dataclass workaround)
+        object.__setattr__(self, "questionnaire_score", _f(q))
+        object.__setattr__(self, "facts_score", _f(f))
+        object.__setattr__(self, "combined_score", _f(c))
+        object.__setattr__(self, "slider_score", _f(s, c))
+        object.__setattr__(self, "true_risk", tr_val)
+        object.__setattr__(self, "vol_min", _f(vmin))
+        object.__setattr__(self, "vol_target", _f(vtgt))
+        object.__setattr__(self, "vol_max", _f(vmax))
+        object.__setattr__(self, "cagr_min", cagr_min_val)
+        object.__setattr__(self, "cagr_target", cagr_target_val)
+        object.__setattr__(self, "label", str(label))
+        object.__setattr__(self, "horizon_years", _i(horizon))
+        object.__setattr__(self, "objective", str(objective))
+
+    # ---- Backward compatibility read-only aliases ----
+    @property
+    def score_questionnaire(self) -> float:
+        return self.questionnaire_score
+
+    @property
+    def score_facts(self) -> float:
+        return self.facts_score
+
+    @property
+    def score_combined(self) -> float:
+        return self.combined_score
+
+    @property
+    def sigma_target(self) -> float:
+        return self.vol_target
+
+    @property
+    def band_min_vol(self) -> float:
+        return self.vol_min
+
+    @property
+    def band_max_vol(self) -> float:
+        return self.vol_max
 
 
 def compute_risk_score(answers: Dict[str, float]) -> float:
@@ -408,3 +542,389 @@ def compute_robustness_from_curve(equity_curve, n_segments: int = 3) -> float:
     
     except Exception:
         return 50.0
+
+
+# ============================================================================
+# Income-Based Risk Scoring (Capacity)
+# ============================================================================
+
+def compute_risk_score_facts(income_profile: dict) -> float:
+    """
+    Compute capacity-based risk score from financial profile [0, 100].
+    
+    Combines 4 financial factors (each 0-25 points):
+    1. Income stability (very unstable=5, very stable=25)
+    2. Emergency fund (none=0, 6+ months=25)
+    3. Investable surplus ratio (vs annual expenses)
+    4. Debt burden (vs annual income)
+    
+    Args:
+        income_profile: Dict with keys:
+            - income_stability: str ("Very stable", "Stable", etc.)
+            - emergency_fund_months: float (months of expenses covered)
+            - investable_amount: float ($ available to invest)
+            - monthly_expenses: float ($ per month)
+            - outstanding_debt: float ($ total debt)
+            - annual_income: float ($ per year)
+    
+    Returns:
+        Score in [0, 100]. Higher = greater financial capacity for risk.
+    
+    Formula (from audit Section 13.10.2):
+        S_facts = S_stability + S_efund + S_surplus + S_debt
+        Each component ∈ [0, 25], then clamped to [0, 100]
+    """
+    score = 0.0
+    
+    # 1. Income stability (0-25 pts)
+    stability_map = {
+        "Very stable": 25.0,
+        "Stable": 20.0,
+        "Moderate": 15.0,
+        "Unstable": 10.0,
+        "Very unstable": 5.0,
+    }
+    score += stability_map.get(income_profile.get("income_stability", "Moderate"), 15.0)
+    
+    # 2. Emergency fund (0-25 pts)
+    efund_months = float(income_profile.get("emergency_fund_months", 0))
+    if efund_months >= 6.0:
+        score += 25.0
+    elif efund_months >= 3.0:
+        score += 15.0
+    elif efund_months >= 1.0:
+        score += 8.0
+    else:
+        score += 0.0
+    
+    # 3. Investable surplus (0-25 pts)
+    investable = float(income_profile.get("investable_amount", 0))
+    monthly_exp = float(income_profile.get("monthly_expenses", 1))
+    annual_exp = monthly_exp * 12.0
+    if annual_exp > 0:
+        surplus_ratio = investable / annual_exp
+        if surplus_ratio >= 2.0:
+            score += 25.0
+        elif surplus_ratio >= 1.0:
+            score += 20.0
+        elif surplus_ratio >= 0.5:
+            score += 12.0
+        elif surplus_ratio >= 0.2:
+            score += 8.0
+        else:
+            score += 3.0
+    else:
+        score += 10.0  # neutral if expenses unknown
+    
+    # 4. Debt burden (0-25 pts) - lower debt = higher score
+    debt = float(income_profile.get("outstanding_debt", 0))
+    annual_income = float(income_profile.get("annual_income", 1))
+    if annual_income > 0:
+        debt_ratio = debt / annual_income
+        if debt_ratio < 0.1:
+            score += 25.0
+        elif debt_ratio < 0.5:
+            score += 20.0
+        elif debt_ratio < 1.5:
+            score += 15.0
+        elif debt_ratio < 3.0:
+            score += 8.0
+        else:
+            score += 0.0
+    else:
+        score += 10.0  # neutral if income unknown
+    
+    return max(0.0, min(100.0, float(score)))
+
+
+def risk_label(score: float) -> str:
+    """
+    Map risk score to qualitative label.
+    
+    Args:
+        score: Risk score in [0, 100]
+    
+    Returns:
+        Label: "Very Conservative", "Conservative", "Moderate", 
+               "Growth-Oriented", or "Aggressive"
+    """
+    if score < 20:
+        return "Very Conservative"
+    elif score < 40:
+        return "Conservative"
+    elif score < 60:
+        return "Moderate"
+    elif score < 80:
+        return "Growth-Oriented"
+    else:
+        return "Aggressive"
+
+
+# ============================================================================
+# Main Risk Profile Computation (Phase 3 signature)
+# ============================================================================
+
+def compute_risk_score_questionnaire(questionnaire_answers: Dict[str, Any]) -> float:
+    """Wrapper for legacy compute_risk_score to match Phase 3 naming."""
+    return compute_risk_score(questionnaire_answers)
+
+
+# ============================================================================
+# TRUE_RISK → Volatility & CAGR Mapping (Phase 3 calibration)
+# ============================================================================
+
+# Calibration anchors for TRUE_RISK → CAGR mapping
+# Based on historical equity/bond mix performance (1990-2025):
+# - Conservative (20): 80/20 bonds/equity → ~5-6% CAGR
+# - Moderate (50): 60/40 equity/bonds → ~8-9% CAGR  
+# - Aggressive (80): 90/10 equity/bonds → ~10-11% CAGR
+CAGR_ANCHOR_LOW = (20.0, 0.05, 0.06)   # (risk_score, cagr_min, cagr_target)
+CAGR_ANCHOR_MID = (50.0, 0.08, 0.09)
+CAGR_ANCHOR_HIGH = (80.0, 0.10, 0.11)
+
+def map_true_risk_to_cagr_band(true_risk: float) -> Tuple[float, float]:
+    """
+    Map TRUE_RISK score [0,100] to expected (cagr_min, cagr_target) band.
+    
+    Uses piecewise linear interpolation between calibrated anchors:
+    - TRUE_RISK ≈ 20 → 5-6% CAGR (conservative, bond-heavy)
+    - TRUE_RISK ≈ 50 → 8-9% CAGR (balanced, 60/40 equity/bonds)
+    - TRUE_RISK ≈ 80 → 10-11% CAGR (aggressive, equity-heavy)
+    
+    Args:
+        true_risk: Risk score in [0, 100]
+    
+    Returns:
+        (cagr_min, cagr_target) as decimals (e.g., 0.08 for 8%)
+    
+    Example:
+        >>> cagr_min, cagr_target = map_true_risk_to_cagr_band(50)
+        >>> print(f"Expected CAGR band: {cagr_min:.1%} - {cagr_target:.1%}")
+        Expected CAGR band: 8.0% - 9.0%
+    
+    Usage:
+        from core.risk_profile import compute_risk_profile, map_true_risk_to_cagr_band
+        
+        profile = compute_risk_profile(...)
+        cagr_min, cagr_target = map_true_risk_to_cagr_band(profile.true_risk)
+    """
+    tr = max(0.0, min(100.0, float(true_risk)))
+    
+    # Piecewise linear interpolation
+    if tr <= CAGR_ANCHOR_LOW[0]:
+        # Below low anchor: use low anchor values
+        return float(CAGR_ANCHOR_LOW[1]), float(CAGR_ANCHOR_LOW[2])
+    
+    elif tr <= CAGR_ANCHOR_MID[0]:
+        # Between low and mid: interpolate
+        t = (tr - CAGR_ANCHOR_LOW[0]) / (CAGR_ANCHOR_MID[0] - CAGR_ANCHOR_LOW[0])
+        cagr_min = CAGR_ANCHOR_LOW[1] + t * (CAGR_ANCHOR_MID[1] - CAGR_ANCHOR_LOW[1])
+        cagr_target = CAGR_ANCHOR_LOW[2] + t * (CAGR_ANCHOR_MID[2] - CAGR_ANCHOR_LOW[2])
+        return float(cagr_min), float(cagr_target)
+    
+    elif tr <= CAGR_ANCHOR_HIGH[0]:
+        # Between mid and high: interpolate
+        t = (tr - CAGR_ANCHOR_MID[0]) / (CAGR_ANCHOR_HIGH[0] - CAGR_ANCHOR_MID[0])
+        cagr_min = CAGR_ANCHOR_MID[1] + t * (CAGR_ANCHOR_HIGH[1] - CAGR_ANCHOR_MID[1])
+        cagr_target = CAGR_ANCHOR_MID[2] + t * (CAGR_ANCHOR_HIGH[2] - CAGR_ANCHOR_MID[2])
+        return float(cagr_min), float(cagr_target)
+    
+    else:
+        # Above high anchor: use high anchor values
+        return float(CAGR_ANCHOR_HIGH[1]), float(CAGR_ANCHOR_HIGH[2])
+
+
+def map_true_risk_to_vol_band(score: float) -> Tuple[float, float, float]:
+    """
+    Map true risk score [0,100] to (vol_min, vol_target, vol_max).
+    Calibrated to observed candidate distribution (Nov 2025):
+      sigma_min=0.1271, sigma_max=0.2202, band=±0.02.
+    """
+    s = max(0.0, min(100.0, float(score)))
+    sigma_min = 0.1271
+    sigma_max = 0.2202
+    vol_target = sigma_min + (sigma_max - sigma_min) * (s / 100.0)
+    band = 0.02
+    vol_min = max(0.0, vol_target - band)
+    vol_max = vol_target + band
+    return vol_min, vol_target, vol_max
+
+
+def infer_investment_horizon(questionnaire_answers: Dict[str, Any], income_profile: Dict[str, Any]) -> int:
+    """Simple heuristic for horizon; default to 10 if not provided."""
+    try:
+        # Prefer explicit field
+        h = int(income_profile.get("horizon_years") or 0)
+        if h > 0:
+            return h
+    except Exception:
+        pass
+    return 10
+
+
+def compute_risk_profile(
+    questionnaire_answers: Dict[str, Any],
+    income_profile: Dict[str, Any],
+    slider_score: Optional[float] = None,
+) -> RiskProfileResult:
+    """
+    Phase 3 orchestrator that combines questionnaire, facts, and slider into a full profile.
+
+    Steps:
+      1) questionnaire_score = compute_risk_score_questionnaire(questionnaire_answers)
+      2) facts_score = compute_risk_score_facts(income_profile)
+      3) combined_score = 0.5 * questionnaire_score + 0.5 * facts_score
+      4) true_risk = 0.7 * combined_score + 0.3 * slider_score (if provided, else combined_score)
+      5) (vol_min, vol_target, vol_max) = map_true_risk_to_vol_band(true_risk)
+      6) (cagr_min, cagr_target) = map_true_risk_to_cagr_band(true_risk)  # Phase 3
+      7) label = risk_label(true_risk)
+      8) horizon_years = infer_investment_horizon(...)
+      9) objective = income_profile.get("objective", "Balanced")
+    """
+    q_score = float(compute_risk_score_questionnaire(questionnaire_answers or {}))
+    f_score = float(compute_risk_score_facts(income_profile or {}))
+    combined = 0.5 * q_score + 0.5 * f_score
+    if slider_score is None:
+        tr = combined
+        slider_used = combined  # for record; indicates neutral blending
+    else:
+        s = max(0.0, min(100.0, float(slider_score)))
+        tr = 0.7 * combined + 0.3 * s
+        slider_used = s
+    # Clamp
+    tr = max(0.0, min(100.0, float(tr)))
+
+    vol_min, vol_target, vol_max = map_true_risk_to_vol_band(tr)
+    cagr_min, cagr_target = map_true_risk_to_cagr_band(tr)
+    label = risk_label(tr)
+    horizon = infer_investment_horizon(questionnaire_answers, income_profile)
+    objective = str(income_profile.get("objective", "Balanced"))
+
+    return RiskProfileResult(
+        questionnaire_score=float(q_score),
+        facts_score=float(f_score),
+        combined_score=float(combined),
+        slider_score=float(slider_used),
+        true_risk=float(tr),
+        vol_min=float(vol_min),
+        vol_target=float(vol_target),
+        vol_max=float(vol_max),
+        cagr_min=float(cagr_min),
+        cagr_target=float(cagr_target),
+        label=str(label),
+        horizon_years=int(horizon),
+        objective=objective,
+    )
+
+
+# ============================================================================
+# Contribution Plans (DCA + Lump Sum)
+# ============================================================================
+
+def compute_contribution_plans(
+    agi: float,
+    net_worth: float,
+    risk_profile: RiskProfileResult,
+    objective: str | None = None,
+    horizon_years: int | None = None,
+) -> list[dict]:
+    """
+    Generate 2-3 contribution plan scenarios based on income and risk profile.
+    
+    Plans vary by aggressiveness:
+    - Baseline: Conservative monthly + small lump sum
+    - Ambitious: Moderate monthly + medium lump sum
+    - Aggressive: Higher monthly + larger lump sum (if risk allows)
+    
+    Args:
+        agi: Adjusted Gross Income (annual)
+        net_worth: Total net worth (assets - liabilities)
+        risk_profile: RiskProfileResult from compute_risk_profile
+        objective: Investment objective (used to adjust plans)
+        horizon_years: Time horizon (longer = can be more aggressive)
+    
+    Returns:
+        List of plan dicts, each with:
+            - name: "Baseline", "Ambitious", "Aggressive"
+            - lump: lump sum contribution ($)
+            - monthly: monthly DCA contribution ($)
+            - description: brief explanation
+    
+    Heuristics:
+        - Monthly contribution scales with AGI and risk score
+        - Lump sum scales with net worth and risk score
+        - Objective modifies ranges:
+            * "preservation" → lower contributions
+            * "growth"/"aggressive" → higher contributions
+        - Horizon affects lump sum (longer horizon = can invest more upfront)
+    
+    Usage:
+        profile = compute_risk_profile(...)
+        plans = compute_contribution_plans(
+            agi=120000,
+            net_worth=350000,
+            risk_profile=profile,
+            objective="balanced",
+            horizon_years=10
+        )
+        
+        for plan in plans:
+            print(f"{plan['name']}: ${plan['lump']} lump + ${plan['monthly']}/mo")
+    """
+    agi = max(0.0, float(agi))
+    net_worth = max(0.0, float(net_worth))
+    true_risk = risk_profile.true_risk
+    horizon = horizon_years or 10
+    obj = objective or "balanced"
+    
+    # Base monthly contribution as % of AGI
+    # Scale by risk: conservative=2%, moderate=4%, aggressive=8%
+    monthly_pct_base = 0.02 + (true_risk / 100.0) * 0.06  # range [2%, 8%]
+    
+    # Adjust for objective
+    obj_multiplier = {
+        "preservation": 0.6,
+        "income": 0.8,
+        "balanced": 1.0,
+        "growth": 1.2,
+        "aggressive": 1.4,
+    }.get(obj, 1.0)
+    
+    monthly_annual = (agi * monthly_pct_base * obj_multiplier) / 12.0
+    
+    # Lump sum as % of net worth
+    # Scale by risk and horizon: conservative+short=1%, aggressive+long=5%
+    lump_pct_base = 0.01 + (true_risk / 100.0) * 0.04  # range [1%, 5%]
+    horizon_multiplier = min(1.5, 0.5 + (horizon / 20.0))  # cap at 1.5x for 20+ year horizons
+    
+    lump_base = net_worth * lump_pct_base * horizon_multiplier * obj_multiplier
+    
+    # Generate 3 plans
+    plans = []
+    
+    # Baseline (conservative)
+    plans.append({
+        "name": "Baseline",
+        "lump": round(lump_base * 0.7, 2),
+        "monthly": round(monthly_annual * 0.8, 2),
+        "description": "Conservative approach with lower initial investment and steady monthly contributions"
+    })
+    
+    # Ambitious (moderate)
+    plans.append({
+        "name": "Ambitious",
+        "lump": round(lump_base * 1.0, 2),
+        "monthly": round(monthly_annual * 1.0, 2),
+        "description": "Balanced approach matching your risk profile and financial capacity"
+    })
+    
+    # Aggressive (if risk allows)
+    if true_risk >= 40:  # Only offer aggressive if not too conservative
+        plans.append({
+            "name": "Aggressive",
+            "lump": round(lump_base * 1.4, 2),
+            "monthly": round(monthly_annual * 1.3, 2),
+            "description": "Maximum investment pace for faster wealth accumulation"
+        })
+    
+    return plans

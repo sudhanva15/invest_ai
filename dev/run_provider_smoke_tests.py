@@ -21,7 +21,7 @@ warnings.filterwarnings("error")
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.data_sources.fetch import fetch_price_history, fetch_multiple
-from core.data_sources.tiingo import is_tiingo_enabled
+from core.data_sources.tiingo import is_tiingo_enabled, tiingo_rate_limited
 from core.universe_validate import build_validated_universe
 
 
@@ -86,6 +86,11 @@ def main():
     print("Provider quick checks:")
     for k, v in prov.items():
         print(f"  {k}: {'OK' if v else 'FAIL'}")
+    # Show Tiingo rate-limit status
+    try:
+        print(f"  tiingo_rate_limited: {tiingo_rate_limited()}")
+    except Exception:
+        pass
 
     batch = test_batch_and_cache()
     print("\nBatch fetch:")
