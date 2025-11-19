@@ -158,7 +158,8 @@ def fetch_daily(symbol: str, start: str | None = None, end: str | None = None) -
         return _demo_frame(symbol)
 
     # Fast skip if we've already hit rate limit and skip flag is enabled.
-    skip_on_rate_limit = os.getenv("TIINGO_SKIP_ON_RATE_LIMIT", "1") == "1"
+    skip_flag_raw = os.getenv("TIINGO_SKIP_ON_RATE_LIMIT", "1")
+    skip_on_rate_limit = str(skip_flag_raw).strip().lower() in {"1", "true", "yes"}
 
     if tiingo_rate_limited() and skip_on_rate_limit:
         logger.debug("Tiingo fetch skipped (rate-limit previously detected)")
@@ -187,22 +188,30 @@ def fetch_daily(symbol: str, start: str | None = None, end: str | None = None) -
             # Log HTTP status
             status = r.status_code
             logger.info(f"Tiingo response: {symbol} | HTTP {status} | attempt={attempt+1}")
-            
+            body_lower = r.text.lower() if isinstance(r.text, str) else ""
+            rate_text_hit = "rate limit" in body_lower
+
             # Detect explicit HTTP rate limit before raising
-            if r.status_code == 429:
+            if status == 429 or rate_text_hit:
                 _mark_rate_limit()
+                logger.warning(
+                    "Tiingo rate limit signal for %s (skip_on_rate_limit=%s, status=%s)",
+                    symbol,
+                    skip_on_rate_limit,
+                    status,
+                )
                 if skip_on_rate_limit:
                     return pd.DataFrame(columns=["date","open","high","low","close","adj_close","volume"])
                 if attempt < MAX_RETRIES - 1:
                     # Exponential backoff: 2s, 4s, 8s (capped at 16s)
                     delay = min(RETRY_BASE_DELAY * (2 ** attempt), RETRY_MAX_DELAY)
                     logger.warning(
-                        f"Tiingo rate limit 429: {symbol} | retry in {delay:.1f}s (attempt {attempt+1}/{MAX_RETRIES})"
+                        f"Tiingo rate limit: {symbol} | retry in {delay:.1f}s (attempt {attempt+1}/{MAX_RETRIES})"
                     )
                     time.sleep(delay)
                     continue  # Retry
                 else:
-                    logger.error(f"Tiingo rate limit 429: {symbol} | max retries exhausted")
+                    logger.error(f"Tiingo rate limit: {symbol} | max retries exhausted")
                     return pd.DataFrame(columns=["date","open","high","low","close","adj_close","volume"])
 
             r.raise_for_status()
@@ -215,6 +224,11 @@ def fetch_daily(symbol: str, start: str | None = None, end: str | None = None) -
             status = e.response.status_code if hasattr(e, "response") and e.response is not None else "unknown"
             if status == 429:
                 _mark_rate_limit()
+                logger.warning(
+                    "Tiingo HTTP 429 for %s (skip_on_rate_limit=%s)",
+                    symbol,
+                    skip_on_rate_limit,
+                )
                 if skip_on_rate_limit:
                     return pd.DataFrame(columns=["date","open","high","low","close","adj_close","volume"])
                 if attempt < MAX_RETRIES - 1:
