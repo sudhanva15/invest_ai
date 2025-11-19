@@ -12,6 +12,7 @@ import pandas as pd
 import streamlit as st
 
 from core.env_tools import load_env_once, is_demo_mode
+from core.demo_data import DEMO_UNIVERSE_SYMBOLS, get_demo_universe_symbols
 
 # Environment bootstrap must happen before heavy module imports
 load_env_once('.env')
@@ -282,6 +283,65 @@ def _ensure_unique_symbol_index(df: pd.DataFrame) -> pd.DataFrame:
         return _df
     except Exception:
         return df
+
+
+def _manual_universe_from_state(default_pool: list[str]) -> list[str]:
+    if "asset_pool_text" not in st.session_state or not st.session_state["asset_pool_text"]:
+        st.session_state["asset_pool_text"] = ",".join(default_pool)
+    manual_text = st.session_state.get("asset_pool_text", ",".join(default_pool))
+    manual_list = [s.strip().upper() for s in manual_text.split(",") if s.strip()]
+    return manual_list if manual_list else default_pool
+
+
+def get_active_universe(demo_flag: bool, use_full_universe_flag: bool) -> tuple[list[str], str, bool]:
+    """Centralized selection for active universe list and banner messaging."""
+    default_pool = CFG.get("data", {}).get("default_universe", ["SPY", "QQQ", "TLT", "BND"])
+
+    if demo_flag:
+        tickers = get_demo_universe_symbols()
+        if len(tickers) < 3:
+            tickers = DEMO_UNIVERSE_SYMBOLS[:4]
+        tickers = list(tickers)
+        st.session_state["universe_records"] = {}
+        st.session_state["universe_metrics"] = {}
+        st.session_state["active_universe"] = tickers
+        st.session_state["active_universe_is_demo"] = True
+        return tickers, f"Using DEMO ETF universe ({len(tickers)} symbols)", True
+
+    if not use_full_universe_flag:
+        st.session_state["universe_records"] = {}
+        st.session_state["universe_metrics"] = {}
+        manual = _manual_universe_from_state(default_pool)
+        st.session_state["active_universe"] = manual
+        st.session_state["active_universe_is_demo"] = False
+        return manual, "", False
+
+    snapshot_path = ROOT / "data/outputs/universe_snapshot.json"
+    if snapshot_path.exists():
+        try:
+            from core.universe_validate import load_valid_universe
+
+            valid_symbols, records, metrics = load_valid_universe(snapshot_path)
+            st.session_state["universe_records"] = records
+            st.session_state["universe_metrics"] = metrics
+            st.session_state["active_universe"] = valid_symbols
+            st.session_state["active_universe_is_demo"] = False
+            return (
+                valid_symbols,
+                f"✓ Using **{len(valid_symbols)} validated ETFs** from universe snapshot",
+                False,
+            )
+        except Exception as exc:
+            message = f"❌ Failed to load universe snapshot: {exc}"
+    else:
+        message = f"❌ Universe snapshot not found at {snapshot_path}"
+
+    fallback = list(default_pool)
+    st.session_state["universe_records"] = {}
+    st.session_state["universe_metrics"] = {}
+    st.session_state["active_universe"] = fallback
+    st.session_state["active_universe_is_demo"] = False
+    return fallback, message, False
 
 # Initialize session state - ONLY set defaults if keys don't exist
 # DO NOT overwrite existing values (fixes state reset bug)
@@ -1384,16 +1444,40 @@ elif current_page == "Portfolios":
     st.markdown("### Asset Pool")
 
     # Full universe checkbox
+    checkbox_help = (
+        "Automatically use all validated ETFs from the universe snapshot. "
+        "Uncheck to specify custom tickers or apply presets."
+    )
+    if DEMO_MODE:
+        checkbox_help += " Demo mode always uses the built-in ETF universe."
+
+    use_full_default = st.session_state.get("use_full_universe", True)
+    if DEMO_MODE:
+        use_full_default = True
+
     use_full_universe = st.checkbox(
         "Use full ETF universe (recommended for beginners)",
-        value=st.session_state.get("use_full_universe", True),
+        value=use_full_default,
         key="use_full_universe",
-        help="Automatically use all validated ETFs from the universe snapshot. "
-             "Uncheck to specify custom tickers or apply presets."
+        help=checkbox_help,
+        disabled=DEMO_MODE,
     )
 
+    if DEMO_MODE and not st.session_state.get("use_full_universe"):
+        st.session_state["use_full_universe"] = True
+        use_full_universe = True
+
     # Always render manual input controls, but disable when using full universe
-    default_pool_text = ",".join(CFG.get("data",{}).get("default_universe", ["SPY","QQQ","TLT","BND"]))
+    default_pool_list = CFG.get("data", {}).get("default_universe", ["SPY", "QQQ", "TLT", "BND"])
+    default_pool_text = ",".join(default_pool_list)
+    if "asset_pool_text" not in st.session_state:
+        st.session_state["asset_pool_text"] = default_pool_text
+
+    symbols_to_use, universe_banner, active_demo_universe = get_active_universe(DEMO_MODE, use_full_universe)
+
+    if active_demo_universe or use_full_universe:
+        st.session_state["asset_pool_text"] = ",".join(symbols_to_use)
+
     pool_val = st.session_state.get("asset_pool_text", default_pool_text)
 
     colp1, colp2 = st.columns([1,3])
@@ -1412,20 +1496,10 @@ elif current_page == "Portfolios":
         help="Enter tickers like SPY, QQQ, TLT. Disabled when using full universe."
     )
 
-    if use_full_universe:
-        # Load universe and show info
-        try:
-            from core.universe_validate import load_valid_universe
-            valid_symbols, _, _ = load_valid_universe()
-            st.info(f"✓ Using **{len(valid_symbols)} validated ETFs** from universe snapshot")
-            symbols_to_use = valid_symbols
-        except Exception as e:
-            st.error(f"Failed to load universe: {e}")
-            st.info("Falling back to default pool")
-            default_pool = CFG.get("data",{}).get("default_universe", ["SPY","QQQ","TLT","BND"])
-            symbols_to_use = default_pool
-    else:
-        symbols_to_use = [s.strip().upper() for s in pool.split(",") if s.strip()]
+    st.session_state["active_universe_is_demo"] = active_demo_universe
+    if universe_banner:
+        banner_fn = st.error if universe_banner.startswith("❌") else st.info
+        banner_fn(universe_banner)
     
     st.markdown("### Your Investment Plan")
     default_lump = float(st.session_state.get("plan_lump_sum", st.session_state.get("ip_investable_amount", 10000) or 10000))
