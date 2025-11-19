@@ -12,7 +12,39 @@ import pandas as pd
 import streamlit as st
 
 from core.env_tools import load_env_once, is_demo_mode
-from core.demo_data import DEMO_UNIVERSE_SYMBOLS, get_demo_universe_symbols
+
+try:
+    from core.demo_data import DEMO_UNIVERSE_SYMBOLS, get_demo_universe_symbols
+except Exception as demo_import_error:  # pragma: no cover
+    st.warning(
+        "Demo data module unavailable; using built-in fallback universe.",
+        icon="⚠️",
+    )
+    DEMO_UNIVERSE_SYMBOLS = [
+        "SPY",
+        "QQQ",
+        "IWM",
+        "EFA",
+        "EEM",
+        "TLT",
+        "LQD",
+        "HYG",
+        "GLD",
+        "VNQ",
+        "BIL",
+        "DBC",
+        "VWO",
+        "AAPL",
+        "MSFT",
+        "AMZN",
+        "GOOGL",
+        "META",
+        "TSLA",
+        "BND",
+    ]
+
+    def get_demo_universe_symbols() -> list[str]:
+        return DEMO_UNIVERSE_SYMBOLS.copy()
 
 # Environment bootstrap must happen before heavy module imports
 load_env_once('.env')
