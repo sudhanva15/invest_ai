@@ -88,7 +88,12 @@ def _risk_profile_debug_info():
 
 # Config helpers
 def load_config(_path: str = "config.yaml") -> dict:
-    import yaml, pathlib
+    import pathlib
+    try:
+        import yaml
+    except Exception as e:
+        st.warning(f"PyYAML unavailable for config { _path }: {e}")
+        return {}
     p = pathlib.Path(_path)
     if not p.exists():
         return {}

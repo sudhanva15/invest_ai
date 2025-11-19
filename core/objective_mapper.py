@@ -6,11 +6,15 @@ target bands based on risk tolerance. Handles mismatch/match/stretch cases.
 """
 
 from __future__ import annotations
-import yaml
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 import logging
+
+try:  # PyYAML is optional until cloud deploy installs it
+    import yaml
+except Exception:  # pragma: no cover - degrade gracefully if missing
+    yaml = None
 
 _log = logging.getLogger(__name__)
 
@@ -60,7 +64,12 @@ def load_objectives_config() -> Dict[str, ObjectiveConfig]:
         Dict mapping objective name -> ObjectiveConfig
     """
     config_path = get_objectives_path()
-    
+
+    if yaml is None:
+        raise RuntimeError(
+            "PyYAML is required to load objectives.yaml. Install PyYAML>=6.0.1"
+        )
+
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
     
@@ -166,7 +175,12 @@ def adjust_bands_for_risk(
     """
     if config_path is None:
         config_path = get_objectives_path()
-    
+
+    if yaml is None:
+        raise RuntimeError(
+            "PyYAML is required to adjust risk bands from objectives.yaml."
+        )
+
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
     

@@ -7,10 +7,14 @@ Complements existing universe.py with YAML-based configuration.
 
 from __future__ import annotations
 import pandas as pd
-import yaml
 from pathlib import Path
 from typing import Dict, List, Optional
 import logging
+
+try:  # allow environments without PyYAML to fail gracefully
+    import yaml
+except Exception:  # pragma: no cover
+    yaml = None
 
 _log = logging.getLogger(__name__)
 
@@ -64,6 +68,9 @@ def load_universe_from_yaml(
     """
     universe_path = get_universe_yaml_path()
     
+    if yaml is None:
+        raise RuntimeError("PyYAML is required to load universe.yaml. Install PyYAML>=6.0.1")
+
     try:
         with open(universe_path, 'r') as f:
             config = yaml.safe_load(f)
@@ -112,7 +119,10 @@ def get_asset_class_info() -> Dict[str, Dict]:
         Dict mapping asset_class -> {label, description, typical_return, typical_volatility}
     """
     universe_path = get_universe_yaml_path()
-    
+
+    if yaml is None:
+        raise RuntimeError("PyYAML is required to load universe.yaml metadata.")
+
     with open(universe_path, 'r') as f:
         config = yaml.safe_load(f)
     
