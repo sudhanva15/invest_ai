@@ -2,30 +2,41 @@ import os
 import sys
 from pathlib import Path
 
-# Add repo root to path
+# Add repo root to path before importing project modules
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import altair as alt
 import pandas as pd
 import streamlit as st
-import altair as alt
+
 from core.utils.env_tools import load_env_once, is_demo_mode
+
+st.set_page_config(
+    page_title="Invest AI - Portfolio Recommender",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 try:
     from core.objective_mapper import (
-        load_objectives_config as _load_objectives_config_fn,
+        load_objectives_config,
         classify_objective_fit,
     )
 except Exception as _obj_err:  # pragma: no cover
-    _load_objectives_config_fn = None
+    load_objectives_config = None
     classify_objective_fit = None
     st.warning(f"Objective mapper unavailable: {_obj_err}")
+
 try:
     from core.data_ingestion import get_prices, get_prices_with_provenance
 except Exception as _e:
     # Degraded mode: log import failure and provide minimal stubs so UI can render help text
     get_prices = get_prices_with_provenance = None
     st.warning(f"Data ingestion modules unavailable: {_e}")
+
 try:
     # Phase 3 UI components (multi-factor engine views)
     from ui.components.portfolio_display import (
@@ -36,6 +47,7 @@ except Exception:
     display_selected_portfolio = None
     display_receipts = None
     st.info("Portfolio display components not available; running in minimal mode.")
+
 try:
     import importlib
     import core.risk_profile as _rp
@@ -94,14 +106,6 @@ load_env_once('.env')
 
 IS_PROD = os.getenv("INVEST_AI_ENV", "").lower() == "production"
 DEMO_MODE = is_demo_mode()
-
-# Page config
-st.set_page_config(
-    page_title="Invest AI - Portfolio Recommender",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
 
 st.markdown(
     """
@@ -223,9 +227,9 @@ PRESETS = {
 
 OBJECTIVES_CONFIG = {}
 OBJECTIVE_OPTIONS: list[str] = []
-if _load_objectives_config_fn is not None:
+if load_objectives_config is not None:
     try:
-        OBJECTIVES_CONFIG = _load_objectives_config_fn() or {}
+        OBJECTIVES_CONFIG = load_objectives_config() or {}
         OBJECTIVE_OPTIONS = list(OBJECTIVES_CONFIG.keys())
     except Exception as _obj_load_err:  # pragma: no cover
         st.warning(f"Unable to load objectives configuration: {_obj_load_err}")
