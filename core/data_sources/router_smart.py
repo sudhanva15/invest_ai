@@ -5,7 +5,8 @@ import pandas as pd
 from typing import Callable, Optional
 
 from core.data_sources.yf_source import fetch_yfinance_history
-from core.utils.env_tools import is_demo_mode
+from core.env_tools import is_demo_mode, load_config
+from core.demo_data import load_demo_price_history
 
 # Stooq symbol mapping (US suffixed tickers)
 STOOQ_MAP = {"SPY":"SPY.US","QQQ":"QQQ.US","TLT":"TLT.US","IEF":"IEF.US","GLD":"GLD.US"}
@@ -81,6 +82,8 @@ def _prefer(left: pd.DataFrame | None, right: pd.DataFrame | None, key: str = "d
 # ---------- Providers ----------
 def _stooq_fetch(symbol, start=None, end=None, force=False):
     _dbg(f"[router] stooq({symbol}, start={start}, end={end})")
+    if DEMO_MODE:
+        return load_demo_price_history(symbol, start=start, end=end)
     try:
         from core.data_sources import stooq
         # Prefer raw symbol for local cache; fallback to mapped if empty
@@ -113,7 +116,6 @@ def _fetch_tiingo_history(symbol, start=None, end=None):
         return None
 
 # ---------- Union fetcher (Stooq primary, Tiingo backfill) ----------
-from core.utils.env_tools import load_config
 from pathlib import Path
 
 def _yfinance_fetch(symbol, start=None, end=None):
@@ -134,12 +136,15 @@ def fetch_union(
     return_provenance: bool = False,
 ):
     # Decide whether to include yfinance as a last-resort backfill based on config
+    if DEMO_MODE:
+        df = load_demo_price_history(symbol, start=start, end=end)
+        provenance = {"demo": len(df)}
+        return (df, provenance) if return_provenance else df
+
     try:
         cfg = load_config(Path("config/config.yaml"))
         use_yf = bool(cfg.get("apis", {}).get("use_yfinance_fallback", cfg.get("data", {}).get("use_yfinance_fallback", False)))
     except Exception:
-        use_yf = False
-    if DEMO_MODE:
         use_yf = False
     providers: list[tuple[str, Callable]] = [
         ("stooq",  lambda: _stooq_fetch(symbol, start=start, end=end, force=force)),

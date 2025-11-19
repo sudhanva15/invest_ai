@@ -11,7 +11,18 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-from core.utils.env_tools import load_env_once, is_demo_mode
+from core.env_tools import load_env_once, is_demo_mode
+
+# Environment bootstrap must happen before heavy module imports
+load_env_once('.env')
+_TRUTHY = {"1", "true", "yes", "on"}
+INVEST_AI_ENV = os.getenv("INVEST_AI_ENV", "").strip().lower()
+INVEST_AI_DEMO_RAW = os.getenv("INVEST_AI_DEMO", "").strip().lower()
+FORCE_DEMO_MODE = INVEST_AI_DEMO_RAW in _TRUTHY
+if FORCE_DEMO_MODE:
+    os.environ["INVEST_AI_DEMO"] = "1"
+
+DEMO_MODE = True if FORCE_DEMO_MODE else is_demo_mode()
 
 st.set_page_config(
     page_title="Invest AI - Portfolio Recommender",
@@ -107,10 +118,7 @@ def load_json(_path: str) -> dict:
         return {}
     return json.loads(p.read_text())
 
-load_env_once('.env')
-
-IS_PROD = os.getenv("INVEST_AI_ENV", "").lower() == "production"
-DEMO_MODE = is_demo_mode()
+IS_PROD = INVEST_AI_ENV == "production"
 
 st.markdown(
     """

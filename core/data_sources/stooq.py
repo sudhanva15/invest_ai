@@ -1,7 +1,8 @@
 from __future__ import annotations
 import pandas as pd
 import logging
-from core.utils.env_tools import is_demo_mode
+from core.env_tools import is_demo_mode
+from core.demo_data import load_demo_price_history
 
 def _normalize_stooq_symbol(sym: str) -> str:
     s = sym.strip().lower()
@@ -35,6 +36,21 @@ def _stooq_url_alt(symbol: str) -> str:
     s = symbol.strip().lower()
     return f"https://stooq.com/q/d/l/?s={_normalize_stooq_symbol(symbol)}&i=d"
 
+def _demo_daily(symbol: str, start: str = "2000-01-01", end: str | None = None) -> pd.DataFrame:
+    demo = load_demo_price_history(symbol, start=start, end=end)
+    if demo.empty:
+        return pd.DataFrame(columns=["date","Open","High","Low","Close","Volume"])
+    out = pd.DataFrame({
+        "date": pd.to_datetime(demo["date"]).dt.date,
+        "Open": demo["open"],
+        "High": demo["high"],
+        "Low": demo["low"],
+        "Close": demo["close"],
+        "Volume": demo["volume"],
+    })
+    return out
+
+
 def load_daily(symbol: str, start: str = "2000-01-01") -> pd.DataFrame:
     """
     Download daily OHLCV from Stooq (free) and cache to data/raw/{SYMBOL}.csv.
@@ -43,6 +59,9 @@ def load_daily(symbol: str, start: str = "2000-01-01") -> pd.DataFrame:
     """
     sym_u = symbol.upper()
     cache_path = _CACHE_DIR / f"{sym_u}.csv"
+
+    if DEMO_MODE:
+        return _demo_daily(symbol, start=start)
 
     # Try cache first
     df = None
@@ -173,6 +192,13 @@ def _clean_ohlcv(df):
 def fetch_daily(symbol: str, start: str|None=None, end: str|None=None, force: bool=False):
     import pandas as pd
     from pathlib import Path
+
+    if DEMO_MODE:
+        df = load_demo_price_history(symbol, start=start, end=end)
+        if df.empty:
+            return pd.DataFrame(columns=["date","open","high","low","close","adj_close","volume","ticker"])
+        df = df.copy()
+        return df[["date","open","high","low","close","adj_close","volume"]].assign(ticker=symbol.upper())
 
     sym = (symbol or "").upper()
     p = Path("data/raw") / f"{sym}.csv"

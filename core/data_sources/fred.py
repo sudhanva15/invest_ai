@@ -1,14 +1,15 @@
 from __future__ import annotations
-import os, time, json
+import os, time
 import pandas as pd
 from datetime import datetime
 from fredapi import Fred
-from core.utils.env_tools import is_demo_mode
-
-CACHE_DIR = os.path.join("data","macro")
-os.makedirs(CACHE_DIR, exist_ok=True)
+from core.env_tools import is_demo_mode
+from core.demo_data import load_demo_macro_series
 
 DEMO_MODE = is_demo_mode()
+CACHE_DIR = os.path.join("data","macro") if not DEMO_MODE else None
+if CACHE_DIR and not DEMO_MODE:
+    os.makedirs(CACHE_DIR, exist_ok=True)
 
 # Default macro menu (you can add more):
 DEFAULT_SERIES = {
@@ -32,6 +33,8 @@ def _to_numeric_series(s: pd.Series) -> pd.Series:
     return pd.to_numeric(s, errors="coerce")
 
 def _cache_path(series_id: str) -> str:
+    if not CACHE_DIR:
+        raise FileNotFoundError("Cache disabled in demo mode")
     return os.path.join(CACHE_DIR, f"{series_id}.csv")
 
 def fetch_series(series_id: str, start: str | None=None, end: str | None=None) -> pd.Series:
@@ -41,6 +44,15 @@ def fetch_series(series_id: str, start: str | None=None, end: str | None=None) -
     - Coerces values to numeric
     - Gracefully falls back to empty Series on hard failure
     """
+    if DEMO_MODE:
+        df = load_demo_macro_series(series_id)
+        s = df.set_index("date")["value"]
+        if start:
+            s = s[s.index >= pd.to_datetime(start)]
+        if end:
+            s = s[s.index <= pd.to_datetime(end)]
+        return _to_numeric_series(s)
+
     cp = _cache_path(series_id)
     try:
         if os.path.exists(cp):
@@ -57,8 +69,6 @@ def fetch_series(series_id: str, start: str | None=None, end: str | None=None) -
                 df.to_csv(cp)
                 s = df["value"]
         else:
-            if DEMO_MODE:
-                return pd.Series(name=series_id, dtype="float64")
             fred = _fred()
             data = fred.get_series(series_id)  # pandas Series with DatetimeIndex
             s = pd.Series(data)

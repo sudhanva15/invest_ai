@@ -11,10 +11,8 @@ try:  # Optional dependency
 except Exception:  # pragma: no cover
     yf = None  # type: ignore
 
-try:
-    from core.utils.env_tools import load_config
-except Exception:  # pragma: no cover
-    from ..utils.env_tools import load_config  # type: ignore
+from core.env_tools import load_config, is_demo_mode
+from core.demo_data import load_demo_price_history
 
 _log = logging.getLogger(__name__)
 
@@ -31,15 +29,20 @@ def _to_bool(value: object, default: bool) -> bool:
     return default
 
 
-_CFG = None
-try:  # load_config may raise if config missing during tests
-    _CFG = load_config()
-except Exception:  # pragma: no cover
-    _CFG = {}
+DEMO_MODE = is_demo_mode()
+
+_CFG = {}
+if not DEMO_MODE:
+    try:  # load_config may raise if config missing during tests
+        _CFG = load_config()
+    except Exception:  # pragma: no cover
+        _CFG = {}
 
 _DEFAULT_SKIP = True
 _ENV_OVERRIDE = os.getenv("YF_SKIP_REMOTE")
-if _ENV_OVERRIDE is not None:
+if DEMO_MODE:
+    YF_SKIP_REMOTE = True
+elif _ENV_OVERRIDE is not None:
     YF_SKIP_REMOTE = _to_bool(_ENV_OVERRIDE, _DEFAULT_SKIP)
 else:
     cfg_flag = None
@@ -61,6 +64,9 @@ def fetch_yfinance_history(
     end_date: Optional[str] = None,
 ) -> pd.DataFrame:
     """Download historical prices via yfinance with defensive guards."""
+    if DEMO_MODE:
+        return load_demo_price_history(symbol, start_date, end_date)
+
     if YF_SKIP_REMOTE:
         _log.debug("[yfinance] Remote fetch skipped for %s (YF_SKIP_REMOTE=1)", symbol)
         return pd.DataFrame()

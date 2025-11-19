@@ -2,7 +2,8 @@ from __future__ import annotations
 import os
 from typing import Callable, Optional, Tuple
 import pandas as pd
-from core.utils.env_tools import is_demo_mode
+from core.env_tools import is_demo_mode
+from core.demo_data import load_demo_price_history
 
 from core.data_sources.yf_source import fetch_yfinance_history
 
@@ -11,6 +12,8 @@ DEMO_MODE = is_demo_mode()
 # Lightweight provider wrappers so we can hand back simple callables
 def _stooq_fetch(symbol: str, start: Optional[str] = None, end: Optional[str] = None, force: bool = False):
     from core.data_sources import stooq
+    if DEMO_MODE:
+        return load_demo_price_history(symbol, start=start, end=end)
     try:
         return stooq.fetch_daily(symbol, start=start, end=end, force=force)
     except TypeError:
@@ -18,13 +21,13 @@ def _stooq_fetch(symbol: str, start: Optional[str] = None, end: Optional[str] = 
 
 def _tiingo_fetch(symbol: str, start: Optional[str] = None, end: Optional[str] = None, force: bool = False):
     if DEMO_MODE:
-        return pd.DataFrame()
+        return load_demo_price_history(symbol, start=start, end=end)
     from core.data_sources.backfill_tiingo import fetch_tiingo_history
     return fetch_tiingo_history(symbol, start=start, end=end)
 
 def _yfinance_fetch(symbol: str, start: Optional[str] = None, end: Optional[str] = None, force: bool = False):
     if DEMO_MODE:
-        return pd.DataFrame()
+        return load_demo_price_history(symbol, start=start, end=end)
     df = fetch_yfinance_history(symbol, start_date=start, end_date=end)
     if df is None or df.empty:
         return None

@@ -20,6 +20,13 @@ from core.universe import load_assets_catalog
 from core.utils.env_tools import load_config
 from core.data_sources.fetch import fetch_multiple
 from core.preprocessing import compute_returns
+from core.env_tools import is_demo_mode
+from core.demo_data import (
+    get_demo_universe_frame,
+    load_demo_price_history,
+)
+
+DEMO_MODE = is_demo_mode()
 
 
 @dataclass
@@ -46,6 +53,205 @@ def _years_between(start: pd.Timestamp, end: pd.Timestamp) -> float:
     return float((end - start).days) / 365.25 if (pd.notna(start) and pd.notna(end)) else 0.0
 
 
+def _demo_prices_wide(symbols: List[str]) -> pd.DataFrame:
+    frames = []
+    for sym in symbols:
+        df = load_demo_price_history(sym)
+        if df.empty:
+            continue
+        ser = df[["date", "adj_close"]].rename(columns={"adj_close": sym})
+        frames.append(ser.set_index("date"))
+    if not frames:
+        return pd.DataFrame()
+    prices = frames[0].copy()
+    for frame in frames[1:]:
+        prices = prices.join(frame, how="outer")
+    return prices.sort_index()
+
+
+def _demo_validate_catalog(
+    catalog_df: pd.DataFrame,
+    *,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    core_min_years: float = 10.0,
+    sat_min_years: float = 7.0,
+    max_missing_pct: float = 10.0,
+    min_median_volume: float = 0.0,
+) -> Tuple[Dict[str, SymbolValidation], List[str], List[str]]:
+    symbols: List[str] = catalog_df["symbol"].astype(str).str.upper().tolist()
+    records: Dict[str, SymbolValidation] = {}
+    valid: List[str] = []
+    dropped: List[str] = []
+
+    for sym in symbols:
+        try:
+            df_full = load_demo_price_history(sym, start=start, end=end)
+        except Exception:
+            df_full = pd.DataFrame()
+
+        cat_row = catalog_df[catalog_df["symbol"] == sym]
+        asset_class = (
+            str(cat_row["asset_class"].values[0])
+            if not cat_row.empty and "asset_class" in cat_row.columns
+            else None
+        )
+        region = (
+            str(cat_row["region"].values[0])
+            if not cat_row.empty and "region" in cat_row.columns
+            else None
+        )
+        core_or_satellite = (
+            str(cat_row["core_or_satellite"].values[0])
+            if not cat_row.empty and "core_or_satellite" in cat_row.columns
+            else None
+        )
+
+        if df_full.empty:
+            rec = SymbolValidation(
+                symbol=sym,
+                start=None,
+                end=None,
+                history_years=0.0,
+                missing_pct=100.0,
+                n_obs=0,
+                provider="demo",
+                valid=False,
+                reason="no_data",
+                provider_error=None,
+                median_volume=None,
+                asset_class=asset_class,
+                region=region,
+                core_or_satellite=core_or_satellite,
+            )
+            records[sym] = rec
+            dropped.append(sym)
+            continue
+
+        df_full = df_full.sort_values("date")
+        idx = pd.to_datetime(df_full["date"], errors="coerce")
+        st = idx.min()
+        en = idx.max()
+        years = _years_between(st, en)
+        try:
+            expected = len(pd.bdate_range(st, en)) if pd.notna(st) and pd.notna(en) else 0
+        except Exception:
+            expected = 0
+        got = int(df_full.shape[0])
+        missing_pct = float(max(0.0, (1.0 - (got / expected)) * 100.0)) if expected > 0 else 0.0
+        median_volume = None
+        if "volume" in df_full.columns:
+            vol_series = df_full["volume"].dropna()
+            if not vol_series.empty:
+                median_volume = float(vol_series.median())
+
+        tier = core_or_satellite if core_or_satellite else "satellite"
+        min_years = core_min_years if tier and tier.lower() == "core" else sat_min_years
+        history_ok = years >= (min_years - 0.01)
+        sparsity_ok = missing_pct <= max_missing_pct
+        liquidity_ok = (
+            (median_volume is not None and median_volume >= min_median_volume)
+            if min_median_volume
+            else True
+        )
+        is_valid = history_ok and sparsity_ok and (got > 0) and liquidity_ok
+        reason = None
+        if not is_valid:
+            r = []
+            if not history_ok:
+                r.append(f"years<{min_years:.0f}")
+            if not sparsity_ok:
+                r.append("missing>")
+            if not liquidity_ok:
+                r.append(f"vol<{min_median_volume}")
+            if got <= 0:
+                r.append("noobs")
+            reason = ",".join(r) if r else "invalid"
+
+        rec = SymbolValidation(
+            symbol=sym,
+            start=st.strftime("%Y-%m-%d") if pd.notna(st) else None,
+            end=en.strftime("%Y-%m-%d") if pd.notna(en) else None,
+            history_years=round(years, 2),
+            missing_pct=round(missing_pct, 2),
+            n_obs=got,
+            provider="demo",
+            valid=is_valid,
+            reason=reason,
+            provider_error=None,
+            median_volume=int(median_volume) if median_volume is not None else None,
+            asset_class=asset_class,
+            region=region,
+            core_or_satellite=core_or_satellite,
+        )
+        records[sym] = rec
+        (valid if is_valid else dropped).append(sym)
+
+    return records, valid, dropped
+
+
+def _demo_metrics(
+    catalog_df: pd.DataFrame,
+    valid: List[str],
+    records: Dict[str, SymbolValidation],
+) -> Dict:
+    metrics: Dict[str, Optional[float] | Dict | None] = {
+        "avg_volatility": None,
+        "avg_correlation": None,
+        "sector_exposure": {},
+        "asset_class_counts": {},
+        "tier_counts": {},
+        "history_years_distribution": None,
+        "volume_distribution": None,
+    }
+
+    df_valid = catalog_df[catalog_df["symbol"].isin(valid)].copy()
+    if not df_valid.empty:
+        if "sector" in df_valid.columns:
+            metrics["sector_exposure"] = (
+                df_valid["sector"].fillna("unknown").value_counts().to_dict()
+            )
+        if "asset_class" in df_valid.columns:
+            metrics["asset_class_counts"] = (
+                df_valid["asset_class"].fillna("unknown").value_counts().to_dict()
+            )
+        if "core_or_satellite" in df_valid.columns:
+            metrics["tier_counts"] = (
+                df_valid["core_or_satellite"].fillna("unknown").value_counts().to_dict()
+            )
+
+    history_years = [rec.history_years for rec in records.values() if rec.valid]
+    if history_years:
+        metrics["history_years_distribution"] = {
+            "min": round(min(history_years), 2),
+            "median": round(float(np.median(history_years)), 2),
+            "max": round(max(history_years), 2),
+        }
+
+    volumes = [rec.median_volume for rec in records.values() if rec.valid and rec.median_volume]
+    if volumes:
+        metrics["volume_distribution"] = {
+            "min": int(min(volumes)),
+            "median": int(float(np.median(volumes))),
+            "max": int(max(volumes)),
+        }
+
+    prices = _demo_prices_wide(valid)
+    if not prices.empty:
+        try:
+            rets = compute_returns(prices)
+            vols = rets.std(ddof=0) * np.sqrt(252.0)
+            metrics["avg_volatility"] = float(np.nanmean(vols.values)) if len(vols) else None
+            corr = rets.corr()
+            if corr is not None and corr.size > 0:
+                upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
+                metrics["avg_correlation"] = float(np.nanmean(upper.values))
+        except Exception:
+            pass
+
+    return metrics
+
+
 def validate_catalog(
     catalog_df: pd.DataFrame,
     *,
@@ -60,6 +266,16 @@ def validate_catalog(
 
     Returns a mapping of symbol->validation record, plus (valid_symbols, dropped_symbols).
     """
+    if DEMO_MODE:
+        return _demo_validate_catalog(
+            catalog_df,
+            start=start,
+            end=end,
+            core_min_years=core_min_years,
+            sat_min_years=sat_min_years,
+            max_missing_pct=max_missing_pct,
+            min_median_volume=min_median_volume,
+        )
     symbols: List[str] = catalog_df["symbol"].astype(str).str.upper().tolist()
     records: Dict[str, SymbolValidation] = {}
     valid: List[str] = []
@@ -379,6 +595,12 @@ def load_valid_universe(
         FileNotFoundError: If snapshot file doesn't exist
         ValueError: If snapshot is invalid/corrupted
     """
+    if DEMO_MODE:
+        catalog = get_demo_universe_frame()
+        records, valid, _ = _demo_validate_catalog(catalog)
+        metrics = _demo_metrics(catalog, valid, records)
+        return valid, records, metrics
+
     if snapshot_path is None:
         snapshot_path = Path("data/outputs/universe_snapshot.json")
     else:

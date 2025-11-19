@@ -8,7 +8,8 @@ import pandas as pd
 import requests
 from pathlib import Path
 
-from core.utils.env_tools import load_env_once, load_config, is_demo_mode
+from core.env_tools import load_env_once, load_config, is_demo_mode
+from core.demo_data import load_demo_price_history
 
 # --- Rate-limit state (module-level) -------------------------------------------------
 # If Tiingo starts returning HTTP 429 or textual rate-limit errors, we set a flag
@@ -43,24 +44,13 @@ DEMO_MODE = is_demo_mode()
 TIINGO_BASE = "https://api.tiingo.com/tiingo/daily/{ticker}/prices"
 TIINGO_PING = "https://api.tiingo.com/api/test"
 
-def _demo_frame(symbol: str) -> pd.DataFrame:
-    cache_path = Path("data/raw") / f"{symbol.upper()}.csv"
-    try:
-        if cache_path.exists():
-            df = pd.read_csv(cache_path)
-            df.columns = [str(c).strip().lower() for c in df.columns]
-            if "date" in df.columns:
-                df["date"] = pd.to_datetime(df["date"], errors="coerce")
-                df = df[df["date"].notna()]
-            for col in ["open","high","low","close","adj_close","volume"]:
-                if col not in df.columns:
-                    df[col] = pd.NA
-            if "adj_close" in df.columns and df["adj_close"].isna().all():
-                df["adj_close"] = df.get("close")
-            return df[["date","open","high","low","close","adj_close","volume"]].reset_index(drop=True)
-    except Exception:
-        pass
-    return pd.DataFrame(columns=["date","open","high","low","close","adj_close","volume"])
+def _demo_frame(symbol: str, start: str | None = None, end: str | None = None) -> pd.DataFrame:
+    df = load_demo_price_history(symbol, start=start, end=end)
+    keep = ["date","open","high","low","close","adj_close","volume"]
+    for col in keep:
+        if col not in df.columns:
+            df[col] = pd.NA
+    return df[keep].reset_index(drop=True)
 
 def _get_token_layered() -> str | None:
     """
@@ -155,7 +145,7 @@ def fetch_daily(symbol: str, start: str | None = None, end: str | None = None) -
     """
     if DEMO_MODE:
         logger.debug("Tiingo fetch skipped for %s (demo mode)", symbol)
-        return _demo_frame(symbol)
+        return _demo_frame(symbol, start=start, end=end)
 
     # Fast skip if we've already hit rate limit and skip flag is enabled.
     skip_flag_raw = os.getenv("TIINGO_SKIP_ON_RATE_LIMIT", "1")

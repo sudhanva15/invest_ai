@@ -3,17 +3,34 @@
 Minimal curated universe expansion beyond ETFs with caps & eligibility.
 """
 from __future__ import annotations
+
 import json
 from pathlib import Path
 from typing import List, Dict, Optional
 import pandas as pd
 
+from core.env_tools import is_demo_mode
+from core.demo_data import (
+    get_demo_universe_frame,
+    get_demo_universe_symbols,
+    get_demo_caps,
+    get_demo_constraints,
+)
+
 _DEF_PATH = Path("config/assets_catalog.json")
+DEMO_MODE = is_demo_mode()
 
 def load_assets_catalog(path: str | Path = _DEF_PATH) -> pd.DataFrame:
-    p = Path(path)
-    data = json.loads(p.read_text())
-    df = pd.DataFrame(data["assets"]).copy()
+    if DEMO_MODE:
+        df = get_demo_universe_frame().copy()
+        caps = get_demo_caps()
+        constraints = get_demo_constraints()
+    else:
+        p = Path(path)
+        data = json.loads(p.read_text())
+        df = pd.DataFrame(data["assets"]).copy()
+        caps = data.get("caps", {})
+        constraints = data.get("constraints", {})
     if "symbol" not in df.columns:
         raise ValueError("Catalog missing symbol column")
     df["symbol"] = df["symbol"].astype(str).str.upper()
@@ -21,8 +38,6 @@ def load_assets_catalog(path: str | Path = _DEF_PATH) -> pd.DataFrame:
     df.index = df["symbol"]
     df.index.name = "symbol"
     # Attach caps & constraints metadata using df.attrs (recommended pandas approach)
-    caps = data.get("caps", {})
-    constraints = data.get("constraints", {})
     df.attrs["caps"] = caps
     df.attrs["constraints"] = constraints
     # Legacy fallback: set _caps/_constraints for older code, suppress warnings
@@ -111,6 +126,8 @@ def get_validated_universe() -> List[str]:
         List of validated ticker symbols (e.g., ["SPY", "QQQ", ...])
         Empty list if snapshot doesn't exist or is invalid
     """
+    if DEMO_MODE:
+        return get_demo_universe_symbols()
     try:
         from core.universe_validate import load_valid_universe
         valid_syms, _, _ = load_valid_universe()

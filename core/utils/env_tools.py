@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 from functools import lru_cache
 
+TRUTHY_VALUES = {"1", "true", "yes", "on"}
+
 def load_env_once(dotenv_path: str | None = None):
     """
     Load .env without relying on find_dotenv() to avoid assertion errors in -c / REPL contexts.
@@ -76,7 +78,7 @@ def _truthy(value, default: bool = False) -> bool:
         return value
     if isinstance(value, (int, float)):
         return value != 0
-    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+    return str(value).strip().lower() in TRUTHY_VALUES
 
 
 def env_flag(name: str, default: bool | str = False) -> bool:
@@ -90,8 +92,10 @@ def env_flag(name: str, default: bool | str = False) -> bool:
 
 @lru_cache(maxsize=None)
 def is_demo_mode() -> bool:
-    """True when INVEST_AI_DEMO is truthy (1/true/yes)."""
-    return env_flag("INVEST_AI_DEMO", False)
+    """Return True when INVEST_AI_DEMO is one of 1/true/yes/on (case-insensitive)."""
+    load_env_once()
+    raw = os.getenv("INVEST_AI_DEMO")
+    return _truthy(raw, default=False)
 
 
 @lru_cache(maxsize=None)
@@ -99,3 +103,7 @@ def is_production_env() -> bool:
     """True when INVEST_AI_ENV is 'production'."""
     load_env_once()
     return os.getenv("INVEST_AI_ENV", "").strip().lower() == "production"
+
+# Ensure .env is loaded as soon as this module is imported so downstream callers
+# can read os.environ without racing.
+load_env_once()

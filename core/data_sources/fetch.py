@@ -27,13 +27,17 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 import pandas as pd
+from core.env_tools import is_demo_mode, load_config
+from core.demo_data import load_demo_price_history
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 # Cache configuration
-CACHE_DIR = Path("data/cache")
-CACHE_DIR.mkdir(parents=True, exist_ok=True)
+DEMO_MODE = is_demo_mode()
+CACHE_DIR = Path("data/cache") if not DEMO_MODE else None
+if CACHE_DIR is not None:
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
 CACHE_TTL_DAYS = int(os.getenv("CACHE_TTL_DAYS", "1"))  # 1 day default
 
 # Symbol mapping for provider-specific quirks
@@ -59,6 +63,8 @@ class ProviderResult:
 
 def _get_cache_paths(ticker: str) -> Tuple[Path, Path]:
     """Return (data_path, metadata_path) for ticker cache."""
+    if CACHE_DIR is None:
+        raise FileNotFoundError("Cache disabled in demo mode")
     data_path = CACHE_DIR / f"{ticker.upper()}.parquet"
     meta_path = CACHE_DIR / f"{ticker.upper()}_meta.json"
     return data_path, meta_path
@@ -370,9 +376,19 @@ def fetch_price_history(
     
     ticker = ticker.strip().upper()
     
+    if DEMO_MODE:
+        demo_df = load_demo_price_history(ticker, start.isoformat() if start else None, end.isoformat() if end else None)
+        demo_df = demo_df.copy()
+        demo_df["date"] = pd.to_datetime(demo_df["date"])
+        demo_df = demo_df.set_index("date").sort_index()
+        cols = ["open","high","low","close","adj_close","volume"]
+        for c in cols:
+            if c not in demo_df.columns:
+                demo_df[c] = pd.NA
+        return demo_df[cols]
+
     # Load config for allow_live and min_cache_rows
     try:
-        from core.utils.env_tools import load_config
         cfg = load_config(Path("config/config.yaml"))
         if allow_live is None:
             allow_live = bool(cfg.get("fetch", {}).get("allow_live_fetch", True))
@@ -384,19 +400,20 @@ def fetch_price_history(
     
     # STEP 1: Try cache first (cache-first)
     if use_cache:
-        data_path, meta_path = _get_cache_paths(ticker)
-        if _is_cache_fresh(meta_path, start, end):
-            df = _read_cache(ticker)
-            if df is not None and not df.empty:
-                df = _normalize_dataframe(df)
-                if _is_dataframe_valid(df):
-                    # Filter to requested date range
-                    if start:
-                        df = df[df.index >= pd.Timestamp(start)]
-                    if end:
-                        df = df[df.index <= pd.Timestamp(end)]
-                    logger.debug(f"✓ Cache hit (fresh): {ticker} → {len(df)} rows")
-                    return df
+        if CACHE_DIR is not None:
+            data_path, meta_path = _get_cache_paths(ticker)
+            if _is_cache_fresh(meta_path, start, end):
+                df = _read_cache(ticker)
+                if df is not None and not df.empty:
+                    df = _normalize_dataframe(df)
+                    if _is_dataframe_valid(df):
+                        # Filter to requested date range
+                        if start:
+                            df = df[df.index >= pd.Timestamp(start)]
+                        if end:
+                            df = df[df.index <= pd.Timestamp(end)]
+                        logger.debug(f"✓ Cache hit (fresh): {ticker} → {len(df)} rows")
+                        return df
     
     # STEP 2: Cache miss/stale → try live providers if allowed
     if not allow_live:
@@ -450,7 +467,7 @@ def fetch_price_history(
     # STEP 3: All live providers failed → try stale cache as last resort
     if use_cache:
         data_path, meta_path = _get_cache_paths(ticker)
-        if data_path.exists():
+        if CACHE_DIR is not None and data_path.exists():
             df = _read_cache(ticker)
             if df is not None and not df.empty:
                 df = _normalize_dataframe(df)
